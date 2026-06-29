@@ -1,4 +1,4 @@
-# 🏭 Smart Warehouse Inventory Analyzer
+# 🏭 Shelf Void Detection
 
 **AI-powered warehouse inventory monitoring system using YOLOv11 for real-time stock detection and analysis.**
 
@@ -43,8 +43,10 @@ Built with **YOLOv11** (Ultralytics) and optimized for **Google Colab** with T4 
 - 🔄 **Training Pipeline** — Complete training workflow with data augmentation
 - 📱 **Colab Ready** — One-click execution on Google Colab with free T4 GPU
 - 📈 **Performance Metrics** — Detailed mAP, precision, and recall analysis
-- 🖼️ **Visualization** — Bounding boxes, confidence scores, and heatmap overlays
+- 🖼️ **Visualization** — Color-coded bounding boxes (red=void, green=product) with confidence scores
 - 📦 **Export Options** — Multiple format support (ONNX, TensorRT, etc.)
+- 📊 **Shelf Fill Metric** — Calculate average shelf fill percentage
+- 🛡️ **Error Handling** — Fixed PNG crash + clear error if no images detected
 
 ---
 
@@ -84,7 +86,7 @@ Built with **YOLOv11** (Ultralytics) and optimized for **Google Colab** with T4 
 | Notebook | Description | Link |
 |----------|-------------|------|
 | `colab_train_yolov11.ipynb` | Train YOLOv11 on custom warehouse dataset | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Moh-Tayyab/Smart_Warehouse_Inventory_Analyzer/blob/main/colab_train_yolov11.ipynb) |
-| `colab_inference_pipeline.ipynb` | Run inference and generate predictions | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Moh-Tayyab/Smart_Warehouse_Inventory_Analyzer/blob/main/colab_inference_pipeline.ipynb) |
+| `colab_inference_pipeline.ipynb` | Run inference and generate predictions | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1I9EYoOdVC1GYhZVl2-TnvAC466oiQOQN?usp=sharing) |
 
 ---
 
