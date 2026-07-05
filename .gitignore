@@ -72,4 +72,9 @@ logs/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db
+
+# claude and opencode
+.claude
+.claude/
+.opencode
+.opencode/

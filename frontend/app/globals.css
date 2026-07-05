@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 92%;
+    --card: 222 40% 8%;
+    --card-foreground: 210 40% 92%;
+    --popover: 222 40% 8%;
+    --popover-foreground: 210 40% 92%;
+    --primary: 212 100% 60%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 222 30% 13%;
+    --secondary-foreground: 210 40% 70%;
+    --muted: 222 30% 12%;
+    --muted-foreground: 215 20% 45%;
+    --accent: 222 30% 15%;
+    --accent-foreground: 210 40% 92%;
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 222 25% 14%;
+    --input: 222 25% 14%;
+    --ring: 212 100% 60%;
+    --radius: 0.625rem;
+
+    --surface-0: #090d16;
+    --surface-1: #0e1525;
+    --surface-2: #111c30;
+    --surface-3: #152035;
+    --border-subtle: rgba(255,255,255,0.06);
+    --border-default: rgba(255,255,255,0.09);
+    --text-primary: #e2eaf8;
+    --text-secondary: #8896b0;
+    --text-tertiary: #4a5568;
+    --green-accent: #10b981;
+    --red-accent: #ef4444;
+    --blue-accent: #3b82f6;
+    --orange-accent: #f59e0b;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--surface-0);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.18);
+  }
+}
+
+@layer utilities {
+  .font-mono-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  .text-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+
+  .panel {
+    background: var(--surface-1);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .glow-green {
+    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.3), 0 0 16px rgba(16, 185, 129, 0.1);
+  }
+
+  .glow-blue {
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3), 0 0 16px rgba(59, 130, 246, 0.1);
+  }
+}
