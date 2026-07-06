@@ -2,19 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Download, Layers } from 'lucide-react';
+import type { BoundingBox } from '@/lib/api';
 
-interface BoundingBox {
-  id: number;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  type: 'occupied' | 'vacant';
-  confidence: number;
-  label?: string;
-}
-
-const BOUNDING_BOXES: BoundingBox[] = [
+export const DEFAULT_BOXES: BoundingBox[] = [
   // Row 1 - top shelf (occupied, dense)
   { id: 1,  x: 1.5,  y: 2.0,  w: 6.5,  h: 14.0, type: 'occupied', confidence: 0.94, label: 'Gaviscon' },
   { id: 2,  x: 8.5,  y: 1.5,  w: 7.0,  h: 14.5, type: 'occupied', confidence: 0.91, label: 'Nexium' },
@@ -79,11 +69,17 @@ const BOUNDING_BOXES: BoundingBox[] = [
   { id: 53, x: 91.5, y: 76.5, w: 7.5,  h: 17.5, type: 'occupied', confidence: 0.84 },
 ];
 
+export const DEFAULT_IMAGE_URL =
+  'https://images.pexels.com/photos/4386370/pexels-photo-4386370.jpeg?auto=compress&cs=tinysrgb&w=900';
+
+
 interface DetectionOutputProps {
   isProcessing: boolean;
   showBoxes: boolean;
   detectionCount: number;
   processingTime: number;
+  imageUrl?: string;
+  boxes?: BoundingBox[];
 }
 
 export function DetectionOutput({
@@ -91,12 +87,14 @@ export function DetectionOutput({
   showBoxes,
   detectionCount,
   processingTime,
+  imageUrl = DEFAULT_IMAGE_URL,
+  boxes = DEFAULT_BOXES,
 }: DetectionOutputProps) {
   const [hoveredBox, setHoveredBox] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [filterType, setFilterType] = useState<'all' | 'occupied' | 'vacant'>('all');
 
-  const visibleBoxes = BOUNDING_BOXES.filter(
+  const visibleBoxes = boxes.filter(
     b => filterType === 'all' || b.type === filterType
   );
 
@@ -218,7 +216,7 @@ export function DetectionOutput({
           }}
         >
           <img
-            src="https://images.pexels.com/photos/4386370/pexels-photo-4386370.jpeg?auto=compress&cs=tinysrgb&w=900"
+            src={imageUrl}
             alt="Shelf detection"
             className="block"
             style={{
@@ -298,7 +296,7 @@ export function DetectionOutput({
 
         {/* Hovered box tooltip */}
         {hoveredBox !== null && (() => {
-          const box = BOUNDING_BOXES.find(b => b.id === hoveredBox);
+          const box = boxes.find(b => b.id === hoveredBox);
           if (!box) return null;
           return (
             <div

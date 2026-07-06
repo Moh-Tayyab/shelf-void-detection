@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { TopNav } from '@/components/dashboard/top-nav';
-import { SourcePanel } from '@/components/dashboard/source-panel';
-import { DetectionOutput } from '@/components/dashboard/detection-output';
+import { SourcePanel, type ImageMeta } from '@/components/dashboard/source-panel';
+import { DetectionOutput, DEFAULT_BOXES, DEFAULT_IMAGE_URL } from '@/components/dashboard/detection-output';
 import { OccupancyBreakdown } from '@/components/dashboard/occupancy-breakdown';
+import { detectImage, type BoundingBox } from '@/lib/api';
 
 const INITIAL_STATE = {
   confidence: 0.35,
@@ -21,6 +22,12 @@ const INITIAL_STATE = {
   vacantBoxes: 19,
 };
 
+const DEFAULT_IMAGE_META: ImageMeta = {
+  label: 'shelf_29.jpeg',
+  dimensions: '615 × 444',
+  size: '186 KB',
+};
+
 export default function Home() {
   const [confidence, setConfidence] = useState(INITIAL_STATE.confidence);
   const [overlap, setOverlap] = useState(INITIAL_STATE.overlap);
@@ -35,34 +42,72 @@ export default function Home() {
   const [occupiedBoxes, setOccupiedBoxes] = useState(INITIAL_STATE.occupiedBoxes);
   const [vacantBoxes, setVacantBoxes] = useState(INITIAL_STATE.vacantBoxes);
 
-  const handleProcess = useCallback(() => {
+  // Backend-connected state
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageUrl, setImageUrl] = useState<string>(DEFAULT_IMAGE_URL);
+  const [imageMeta, setImageMeta] = useState<ImageMeta>(DEFAULT_IMAGE_META);
+  const [boxes, setBoxes] = useState<BoundingBox[]>(DEFAULT_BOXES);
+  const [error, setError] = useState<string | null>(null);
+
+  // Clean up object URLs to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (imageUrl.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
+    };
+  }, [imageUrl]);
+
+  const handleImageSelect = useCallback((file: File) => {
+    setError(null);
+    if (imageUrl.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
+    const url = URL.createObjectURL(file);
+    setImageFile(file);
+    setImageUrl(url);
+    setImageMeta({
+      label: file.name,
+      dimensions: '—',
+      size: formatBytes(file.size),
+    });
+    // Clear previous annotations until the user runs detection
+    setBoxes([]);
+  }, [imageUrl]);
+
+  const handleProcess = useCallback(async () => {
     if (isProcessing) return;
+    if (!imageFile) {
+      setError('Please upload a shelf image first.');
+      return;
+    }
+
     setIsProcessing(true);
     setShowBoxes(false);
+    setError(null);
 
-    const duration = 800 + Math.random() * 600;
+    try {
+      const result = await detectImage(imageFile, { confidence, overlap });
 
-    setTimeout(() => {
-      const base = metric === 'area' ? 71.6 : 81.6;
-      const confEffect = (confidence - 0.35) * 20;
-      const newOccupied = Math.min(Math.max(base + confEffect + (Math.random() * 4 - 2), 55), 92);
-      const newVacant = parseFloat((100 - newOccupied).toFixed(1));
-      const newDetections = Math.round(90 + confidence * 30 + Math.random() * 10);
-      const newSlots = Math.round(newDetections * (1 + Math.random() * 0.05));
-      const newOccupiedBoxes = Math.round((newOccupied / 100) * newSlots);
-      const newVacantBoxes = newSlots - newOccupiedBoxes;
-
-      setOccupiedPct(parseFloat(newOccupied.toFixed(1)));
-      setVacantPct(newVacant);
-      setDetectionCount(newDetections);
-      setProcessingTime(Math.round(duration));
-      setSlotsDetected(newSlots);
-      setOccupiedBoxes(newOccupiedBoxes);
-      setVacantBoxes(newVacantBoxes);
+      setBoxes(result.detections);
+      setDetectionCount(result.stats.detectionCount);
+      setProcessingTime(result.stats.processingTime);
+      setOccupiedPct(result.stats.occupiedPct);
+      setVacantPct(result.stats.vacantPct);
+      setSlotsDetected(result.stats.slotsDetected);
+      setOccupiedBoxes(result.stats.occupiedBoxes);
+      setVacantBoxes(result.stats.vacantBoxes);
+      if (result.image.width && result.image.height) {
+        setImageMeta(m => ({
+          ...m,
+          dimensions: `${result.image.width} × ${result.image.height}`,
+        }));
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Detection request failed.';
+      setError(message);
+      setBoxes([]);
+    } finally {
       setIsProcessing(false);
       setShowBoxes(true);
-    }, duration);
-  }, [isProcessing, confidence, metric]);
+    }
+  }, [isProcessing, imageFile, confidence, overlap]);
 
   return (
     <div className="flex flex-col min-h-screen" style={{ background: 'var(--surface-0)' }}>
@@ -80,14 +125,33 @@ export default function Home() {
             onConfidenceChange={setConfidence}
             onOverlapChange={setOverlap}
             onMetricChange={setMetric}
+            imageUrl={imageUrl}
+            imageMeta={imageMeta}
+            onImageSelect={handleImageSelect}
           />
 
-          <DetectionOutput
-            isProcessing={isProcessing}
-            showBoxes={showBoxes}
-            detectionCount={detectionCount}
-            processingTime={processingTime}
-          />
+          <div className="flex flex-col flex-1" style={{ minHeight: 0 }}>
+            {error && (
+              <div
+                className="mb-2 px-3 py-2 rounded-md text-xs"
+                style={{
+                  background: 'rgba(239,68,68,0.1)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  color: '#fca5a5',
+                }}
+              >
+                {error}
+              </div>
+            )}
+            <DetectionOutput
+              isProcessing={isProcessing}
+              showBoxes={showBoxes}
+              detectionCount={detectionCount}
+              processingTime={processingTime}
+              imageUrl={imageUrl}
+              boxes={boxes}
+            />
+          </div>
         </div>
 
         {/* Analytics row */}
@@ -102,4 +166,10 @@ export default function Home() {
       </main>
     </div>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

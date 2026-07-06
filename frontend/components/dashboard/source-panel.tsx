@@ -4,6 +4,12 @@ import { useState, useRef } from 'react';
 import { Play, Upload, ChevronDown, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 
+export interface ImageMeta {
+  label: string;
+  dimensions: string;
+  size: string;
+}
+
 interface SourcePanelProps {
   onProcess: () => void;
   isProcessing: boolean;
@@ -13,6 +19,15 @@ interface SourcePanelProps {
   onConfidenceChange: (v: number) => void;
   onOverlapChange: (v: number) => void;
   onMetricChange: (v: 'area' | 'count') => void;
+  imageUrl: string;
+  imageMeta: ImageMeta;
+  onImageSelect: (file: File) => void;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function SourcePanel({
@@ -24,9 +39,27 @@ export function SourcePanel({
   onConfidenceChange,
   onOverlapChange,
   onMetricChange,
+  imageUrl,
+  imageMeta,
+  onImageSelect,
 }: SourcePanelProps) {
-  const [imageLabel] = useState('shelf_29.jpeg');
   const [hoveringProcess, setHoveringProcess] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const openPicker = () => fileInputRef.current?.click();
+
+  const handleFile = (file: File | undefined | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return;
+    onImageSelect(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    handleFile(e.dataTransfer.files?.[0]);
+  };
 
   return (
     <aside
@@ -61,21 +94,30 @@ export function SourcePanel({
       <div className="p-4 flex flex-col gap-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <div className="flex items-start gap-2.5">
           {/* Thumbnail */}
-          <div
-            className="shrink-0 rounded-md overflow-hidden"
+          <button
+            type="button"
+            onClick={openPicker}
+            onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={handleDrop}
+            className="shrink-0 rounded-md overflow-hidden relative cursor-pointer transition-all duration-150"
+            title="Click or drop an image to upload"
             style={{
               width: '52px',
               height: '36px',
-              border: '1px solid rgba(255,255,255,0.1)',
+              border: isDragOver
+                ? '1px solid var(--blue-accent)'
+                : '1px solid rgba(255,255,255,0.1)',
               background: 'var(--surface-2)',
+              boxShadow: isDragOver ? '0 0 0 2px rgba(59,130,246,0.3)' : 'none',
             }}
           >
             <img
-              src="https://images.pexels.com/photos/4386370/pexels-photo-4386370.jpeg?auto=compress&cs=tinysrgb&w=120&h=80&fit=crop"
+              src={imageUrl}
               alt="Shelf source"
               className="w-full h-full object-cover"
             />
-          </div>
+          </button>
 
           {/* Meta */}
           <div className="flex-1 min-w-0">
@@ -84,9 +126,11 @@ export function SourcePanel({
                 className="text-xs font-medium truncate"
                 style={{ color: 'var(--text-primary)', fontSize: '11px' }}
               >
-                {imageLabel}
+                {imageMeta.label}
               </span>
               <button
+                type="button"
+                onClick={openPicker}
                 className="text-label shrink-0 transition-colors hover:opacity-80"
                 style={{ color: 'var(--blue-accent)', fontSize: '10px', letterSpacing: '0', textTransform: 'none', fontWeight: 500 }}
               >
@@ -94,11 +138,23 @@ export function SourcePanel({
               </button>
             </div>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-label" style={{ fontSize: '9.5px' }}>615 × 444</span>
-              <span className="text-label" style={{ fontSize: '9.5px' }}>186 KB</span>
+              <span className="text-label" style={{ fontSize: '9.5px' }}>{imageMeta.dimensions}</span>
+              <span className="text-label" style={{ fontSize: '9.5px' }}>{imageMeta.size}</span>
             </div>
           </div>
         </div>
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={e => {
+            handleFile(e.target.files?.[0]);
+            e.target.value = '';
+          }}
+        />
       </div>
 
       {/* Controls */}
