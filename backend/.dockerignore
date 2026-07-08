@@ -1,0 +1,9 @@
+.venv
+__pycache__
+*.pyc
+colab_*.ipynb
+pyproject.toml
+uv.lock
+.python-version
+README.md
+dataset.zip

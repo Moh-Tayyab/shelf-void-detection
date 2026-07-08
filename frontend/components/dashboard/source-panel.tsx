@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Play, Upload, ChevronDown, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { Play, Upload, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
 import { Slider } from '@/components/ui/slider';
+import { type SessionEntry, formatRelativeTime } from '@/hooks/use-session-history';
+import { formatBytes } from '@/lib/utils';
 
 export interface ImageMeta {
   label: string;
@@ -19,15 +22,10 @@ interface SourcePanelProps {
   onConfidenceChange: (v: number) => void;
   onOverlapChange: (v: number) => void;
   onMetricChange: (v: 'area' | 'count') => void;
-  imageUrl: string;
+  imageUrl: string | null;
   imageMeta: ImageMeta;
   onImageSelect: (file: File) => void;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  sessions?: SessionEntry[];
 }
 
 export function SourcePanel({
@@ -42,8 +40,8 @@ export function SourcePanel({
   imageUrl,
   imageMeta,
   onImageSelect,
+  sessions = [],
 }: SourcePanelProps) {
-  const [hoveringProcess, setHoveringProcess] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,7 +49,10 @@ export function SourcePanel({
 
   const handleFile = (file: File | undefined | null) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image file (JPEG, PNG, WebP, etc.).');
+      return;
+    }
     onImageSelect(file);
   };
 
@@ -63,88 +64,64 @@ export function SourcePanel({
 
   return (
     <aside
-      className="flex flex-col gap-0 shrink-0"
-      style={{
-        width: '240px',
-        minWidth: '240px',
-        background: 'var(--surface-1)',
-        border: '1px solid var(--border-default)',
-        borderRadius: '12px',
-        overflow: 'hidden',
-      }}
+      aria-label="Source and detection settings"
+      className="flex flex-col gap-0 shrink-0 w-full md:w-[240px] md:min-w-[240px] bg-[var(--surface-1)] border border-[var(--border-default)] rounded-xl overflow-hidden"
     >
       {/* Panel header */}
-      <div
-        className="flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
-      >
-        <span className="text-label" style={{ color: 'var(--text-tertiary)' }}>SOURCE</span>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)]">
+        <h2 className="text-label text-[var(--text-tertiary)]">SOURCE</h2>
         <div
-          className="flex items-center justify-center w-5 h-5 rounded"
-          style={{
-            background: 'rgba(59,130,246,0.12)',
-            border: '1px solid rgba(59,130,246,0.2)',
-          }}
+          className="flex items-center justify-center w-5 h-5 rounded bg-blue-500/[0.12] border border-blue-500/20"
+          aria-hidden="true"
         >
-          <span className="text-label" style={{ color: 'var(--blue-accent)', fontSize: '9px' }}>#1</span>
+          <span className="text-label text-[var(--blue-accent)] text-[9px]">#1</span>
         </div>
       </div>
 
       {/* Image source block */}
-      <div className="p-4 flex flex-col gap-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="p-4 flex flex-col gap-3 border-b border-[var(--border-subtle)]">
         <div className="flex items-start gap-2.5">
-          {/* Thumbnail */}
           <button
             type="button"
             onClick={openPicker}
             onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
             onDragLeave={() => setIsDragOver(false)}
             onDrop={handleDrop}
-            className="shrink-0 rounded-md overflow-hidden relative cursor-pointer transition-all duration-150"
-            title="Click or drop an image to upload"
+            aria-label={imageUrl ? 'Change shelf image' : 'Upload shelf image'}
+            className="shrink-0 rounded-md overflow-hidden relative cursor-pointer transition-all duration-150 flex items-center justify-center w-[52px] h-[36px]"
             style={{
-              width: '52px',
-              height: '36px',
-              border: isDragOver
-                ? '1px solid var(--blue-accent)'
-                : '1px solid rgba(255,255,255,0.1)',
+              border: isDragOver ? '1px solid var(--blue-accent)' : '1px solid var(--border-default)',
               background: 'var(--surface-2)',
               boxShadow: isDragOver ? '0 0 0 2px rgba(59,130,246,0.3)' : 'none',
             }}
           >
-            <img
-              src={imageUrl}
-              alt="Shelf source"
-              className="w-full h-full object-cover"
-            />
+            {imageUrl ? (
+              <img src={imageUrl} alt="Shelf source preview" className="w-full h-full object-cover" />
+            ) : (
+              <Upload className="w-4 h-4 text-[var(--text-tertiary)]" />
+            )}
           </button>
 
-          {/* Meta */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1">
-              <span
-                className="text-xs font-medium truncate"
-                style={{ color: 'var(--text-primary)', fontSize: '11px' }}
-              >
+              <span className="text-[11px] font-medium text-[var(--text-primary)] truncate">
                 {imageMeta.label}
               </span>
               <button
                 type="button"
                 onClick={openPicker}
-                className="text-label shrink-0 transition-colors hover:opacity-80"
-                style={{ color: 'var(--blue-accent)', fontSize: '10px', letterSpacing: '0', textTransform: 'none', fontWeight: 500 }}
+                className="text-label shrink-0 transition-colors hover:opacity-80 text-[var(--blue-accent)] text-[10px] !tracking-normal !normal-case font-medium"
               >
                 change
               </button>
             </div>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-label" style={{ fontSize: '9.5px' }}>{imageMeta.dimensions}</span>
-              <span className="text-label" style={{ fontSize: '9.5px' }}>{imageMeta.size}</span>
+              <span className="text-label text-[9.5px]">{imageMeta.dimensions}</span>
+              <span className="text-label text-[9.5px]">{imageMeta.size}</span>
             </div>
           </div>
         </div>
 
-        {/* Hidden file input */}
         <input
           ref={fileInputRef}
           type="file"
@@ -158,22 +135,19 @@ export function SourcePanel({
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col gap-5 p-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="flex flex-col gap-5 p-4 border-b border-[var(--border-subtle)]">
         {/* Confidence */}
         <div className="flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-label">Confidence</span>
-            <span
-              className="font-mono-num tabular-nums"
-              style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-primary)' }}
-            >
+            <label id="conf-label" htmlFor="conf-slider" className="text-label">Confidence</label>
+            <span className="font-mono-num tabular-nums text-[11px] font-medium text-[var(--text-primary)]" aria-hidden="true">
               {confidence.toFixed(2)}
             </span>
           </div>
           <Slider
-            min={0}
-            max={1}
-            step={0.01}
+            id="conf-slider"
+            aria-labelledby="conf-label"
+            min={0} max={1} step={0.01}
             value={[confidence]}
             onValueChange={([v]) => onConfidenceChange(v)}
             className="w-full"
@@ -183,18 +157,15 @@ export function SourcePanel({
         {/* Overlap IoU */}
         <div className="flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-label">Overlap (IoU)</span>
-            <span
-              className="font-mono-num tabular-nums"
-              style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-primary)' }}
-            >
+            <label id="overlap-label" htmlFor="overlap-slider" className="text-label">Overlap (IoU)</label>
+            <span className="font-mono-num tabular-nums text-[11px] font-medium text-[var(--text-primary)]" aria-hidden="true">
               {overlap.toFixed(2)}
             </span>
           </div>
           <Slider
-            min={0}
-            max={1}
-            step={0.01}
+            id="overlap-slider"
+            aria-labelledby="overlap-label"
+            min={0} max={1} step={0.01}
             value={[overlap]}
             onValueChange={([v]) => onOverlapChange(v)}
             className="w-full"
@@ -202,23 +173,20 @@ export function SourcePanel({
         </div>
 
         {/* Metric toggle */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" role="group" aria-label="Metric selection">
           <span className="text-label">Metric</span>
-          <div
-            className="flex rounded-md p-0.5 w-full"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
-          >
+          <div className="flex rounded-md p-0.5 w-full bg-white/[0.04] border border-[var(--border-default)]">
             {(['area', 'count'] as const).map(m => (
               <button
                 key={m}
+                type="button"
+                aria-pressed={metric === m}
                 onClick={() => onMetricChange(m)}
-                className="flex-1 rounded py-1 text-xs font-medium transition-all duration-150"
-                style={{
-                  background: metric === m ? 'rgba(59,130,246,0.2)' : 'transparent',
-                  color: metric === m ? 'var(--blue-accent)' : 'var(--text-secondary)',
-                  border: metric === m ? '1px solid rgba(59,130,246,0.3)' : '1px solid transparent',
-                  fontSize: '11px',
-                }}
+                className={`flex-1 rounded py-1 text-[11px] font-medium transition-all duration-150 ${
+                  metric === m
+                    ? 'bg-blue-500/20 text-[var(--blue-accent)] border border-blue-500/30'
+                    : 'bg-transparent text-[var(--text-secondary)] border border-transparent'
+                }`}
               >
                 {m.charAt(0).toUpperCase() + m.slice(1)}
               </button>
@@ -230,23 +198,15 @@ export function SourcePanel({
       {/* Process button */}
       <div className="p-4">
         <button
+          type="button"
           onClick={onProcess}
           disabled={isProcessing}
-          onMouseEnter={() => setHoveringProcess(true)}
-          onMouseLeave={() => setHoveringProcess(false)}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 relative overflow-hidden"
+          aria-busy={isProcessing}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 relative overflow-hidden hover:brightness-110 disabled:cursor-not-allowed"
           style={{
-            background: isProcessing
-              ? 'rgba(59,130,246,0.3)'
-              : hoveringProcess
-              ? 'rgba(59,130,246,0.9)'
-              : 'rgba(59,130,246,0.8)',
+            background: isProcessing ? 'rgba(59,130,246,0.3)' : 'rgba(59,130,246,0.8)',
             color: 'white',
             border: '1px solid rgba(59,130,246,0.4)',
-            boxShadow: hoveringProcess && !isProcessing
-              ? '0 0 20px rgba(59,130,246,0.3)'
-              : '0 0 0 rgba(59,130,246,0)',
-            cursor: isProcessing ? 'not-allowed' : 'pointer',
           }}
         >
           {isProcessing ? (
@@ -260,28 +220,28 @@ export function SourcePanel({
 
       {/* Session history */}
       <div className="px-4 pb-4 flex flex-col gap-1">
-        <span className="text-label mb-2" style={{ color: 'var(--text-tertiary)' }}>RECENT SESSIONS</span>
-        {[
-          { label: 'shelf_28.jpeg', time: '2m ago', detections: 98 },
-          { label: 'shelf_27.jpeg', time: '14m ago', detections: 112 },
-          { label: 'shelf_26.jpeg', time: '1h ago', detections: 87 },
-        ].map((s, i) => (
-          <div
-            key={i}
-            className="flex items-center justify-between px-2.5 py-2 rounded-md cursor-pointer transition-all duration-150"
-            style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-          >
-            <div className="flex items-center gap-2">
-              <ImageIcon className="w-3 h-3 shrink-0" style={{ color: 'var(--text-tertiary)' }} />
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{s.label}</span>
+        <h2 className="text-label mb-2 text-[var(--text-tertiary)]">RECENT SESSIONS</h2>
+        {sessions.length === 0 ? (
+          <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
+            No sessions yet — process an image to see results here.
+          </p>
+        ) : (
+          sessions.map(s => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between px-2.5 py-2 rounded-md text-[var(--text-secondary)]"
+            >
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-3 h-3 shrink-0 text-[var(--text-tertiary)]" />
+                <span className="text-[11px]">{s.label}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[var(--text-tertiary)]">{s.detections}</span>
+                <span className="text-[10px] text-[var(--text-tertiary)]">{formatRelativeTime(s.time)}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{s.detections}</span>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </aside>
   );

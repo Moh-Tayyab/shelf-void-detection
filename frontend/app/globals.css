@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  :root,
+  .dark {
     --background: 222 47% 6%;
     --foreground: 210 40% 92%;
     --card: 222 40% 8%;
@@ -32,12 +33,81 @@
     --border-subtle: rgba(255,255,255,0.06);
     --border-default: rgba(255,255,255,0.09);
     --text-primary: #e2eaf8;
-    --text-secondary: #8896b0;
-    --text-tertiary: #4a5568;
+    --text-secondary: #9aa8c4;
+    --text-tertiary: #7c89a5;
     --green-accent: #10b981;
     --red-accent: #ef4444;
     --blue-accent: #3b82f6;
     --orange-accent: #f59e0b;
+    --hover-overlay: rgba(255,255,255,0.06);
+
+    /* Semantic domain tokens */
+    --color-occupied: #22c55e;
+    --color-vacant: #ef4444;
+    --color-success: #10b981;
+    --color-danger: #ef4444;
+    --color-primary: #3b82f6;
+    --color-warning: #f59e0b;
+    --color-panel-bg: rgba(9, 13, 22, 0.92);
+    --color-panel-border: rgba(255, 255, 255, 0.07);
+    --color-panel-divider: rgba(255, 255, 255, 0.08);
+    --color-glow-green: rgba(16, 185, 129, 0.3);
+    --color-glow-blue: rgba(59, 130, 246, 0.3);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.18);
+  }
+
+  /* Light-mode token set (ready for theme toggle) */
+  :root:not(.dark) {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 212 92% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 222 30% 30%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 222 12% 40%;
+    --accent: 220 14% 92%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 86%;
+    --input: 220 13% 86%;
+    --ring: 212 92% 48%;
+
+    --surface-0: #f1f5fb;
+    --surface-1: #ffffff;
+    --surface-2: #f8fafc;
+    --surface-3: #eef2f7;
+    --border-subtle: rgba(15,23,42,0.07);
+    --border-default: rgba(15,23,42,0.12);
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-tertiary: #5b6678;
+    --green-accent: #059669;
+    --red-accent: #dc2626;
+    --blue-accent: #2563eb;
+    --orange-accent: #d97706;
+    --hover-overlay: rgba(15,23,42,0.05);
+
+    /* Semantic domain tokens */
+    --color-occupied: #059669;
+    --color-vacant: #dc2626;
+    --color-success: #059669;
+    --color-danger: #dc2626;
+    --color-primary: #2563eb;
+    --color-warning: #d97706;
+    --color-panel-bg: rgba(255, 255, 255, 0.92);
+    --color-panel-border: rgba(15, 23, 42, 0.07);
+    --color-panel-divider: rgba(15, 23, 42, 0.1);
+    --color-glow-green: rgba(5, 150, 105, 0.3);
+    --color-glow-blue: rgba(37, 99, 235, 0.3);
+    --scrollbar-thumb: rgba(15, 23, 42, 0.1);
+    --scrollbar-thumb-hover: rgba(15, 23, 42, 0.18);
   }
 }
 
@@ -51,6 +121,11 @@
     color-scheme: dark;
   }
 
+  :root:not(.dark) html,
+  html:not(.dark) {
+    color-scheme: light;
+  }
+
   body {
     background-color: var(--surface-0);
     color: var(--text-primary);
@@ -58,6 +133,25 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+  }
+
+  /* Visible keyboard focus for all interactive elements */
+  :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Respect users who prefer reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   ::-webkit-scrollbar {
@@ -70,12 +164,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.1);
+    background: var(--scrollbar-thumb);
     border-radius: 2px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255,255,255,0.18);
+    background: var(--scrollbar-thumb-hover);
   }
 }
 
@@ -105,6 +199,14 @@
     justify-content: space-between;
     padding: 12px 16px;
     border-bottom: 1px solid var(--border-subtle);
+  }
+
+  /* Reusable hover that replaces inline JS onMouseEnter/Leave handlers */
+  .hover-surface {
+    transition: background-color 0.15s ease;
+  }
+  .hover-surface:hover {
+    background-color: var(--hover-overlay);
   }
 
   .glow-green {

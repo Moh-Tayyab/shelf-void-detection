@@ -10,15 +10,3 @@ dependencies = [
     "ultralytics>=8.4.89",
     "uvicorn[standard]>=0.50.1",
 ]
-
-[tool.uv]
-override-dependencies = ["torch>=2.0.0", "torchvision>=0.15.0"]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[tool.uv.sources]
-torch = { index = "pytorch-cpu" }
-torchvision = { index = "pytorch-cpu" }

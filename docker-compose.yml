@@ -1,0 +1,24 @@
+# The frontend is a Next.js app whose pages make fetch() calls to the backend
+# directly from the user's browser. NEXT_PUBLIC_* values are baked at build time,
+# so the browser resolves the API URL on the host. The backend must therefore be
+# exposed on the host at http://localhost:8000.
+
+services:
+  backend:
+    build: ./backend
+    container_name: shelf-void-backend
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: shelf-void-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

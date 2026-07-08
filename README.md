@@ -35,7 +35,7 @@ The system is built as three decoupled layers:
 | Layer | Role | Tech |
 |------|------|------|
 | **Model** | Detects `product` and `missing` (void) classes | YOLOv11 (Ultralytics), trained on a custom retail-shelf dataset |
-| **Backend API** | Loads the model, runs inference, returns boxes + stats | FastAPI + PyTorch + Ultralytics, managed with `uv` |
+| **Backend API** | Loads the model, runs inference, returns boxes + stats | FastAPI + PyTorch + Ultralytics, managed with `pip` + `venv` |
 | **Frontend Dashboard** | Upload image, render boxes overlay, show analytics | Next.js 13 + React 18 + TypeScript + Tailwind + shadcn/ui + Recharts |
 
 This separation makes each layer independently deployable, testable, and scalable.
@@ -102,7 +102,7 @@ This separation makes each layer independently deployable, testable, and scalabl
 - [Ultralytics YOLOv11](https://github.com/ultralytics/ultralytics) — object detection
 - [PyTorch](https://pytorch.org/) — model runtime (CPU or CUDA)
 - [Pillow](https://python-pillow.org/) / [NumPy](https://numpy.org/) — image handling
-- [uv](https://github.com/astral-sh/uv) — fast Python package manager
+- `pip` + `venv` — dependency management
 
 **Frontend**
 - [Next.js 13](https://nextjs.org/) + [React 18](https://react.dev/) — app framework
@@ -127,8 +127,8 @@ shelf-void-detection/
 │   ├── yolo11n.pt                    # Generic COCO pretrained (fallback)
 │   ├── colab_train_yolov11.ipynb     # Training notebook
 │   ├── colab_inference_pipeline.ipynb# Inference + 2-stage experiment notebook
-│   ├── pyproject.toml                # Python deps (uv)
-│   └── uv.lock                       # Locked dependency versions
+│   ├── requirements.txt               # Python deps (pip)
+│   └── pyproject.toml                 # Project metadata
 │
 ├── frontend/                         # Next.js dashboard
 │   ├── app/                          # Next.js App Router (layout, page)
@@ -150,7 +150,7 @@ shelf-void-detection/
 
 ### Prerequisites
 
-- **Python 3.12+** and [`uv`](https://github.com/astral-sh/uv) installed
+- **Python 3.12+**
 - **Node.js 18+** and npm
 - (Optional) CUDA GPU for faster inference — CPU works out of the box
 
@@ -159,11 +159,18 @@ shelf-void-detection/
 ```bash
 cd backend
 
-# Install dependencies (uv resolves torch CPU/CPU automatically)
-uv sync
+# Create a virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Install PyTorch (CPU-only — omit --index-url for GPU/CUDA)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# Install application dependencies
+pip install -r requirements.txt
 
 # Start the API (defaults to http://localhost:8000)
-uv run uvicorn main:app --reload
+uvicorn main:app --reload
 ```
 
 Verify it's up:
