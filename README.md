@@ -1,362 +1,344 @@
-# 🏭 Shelf Void Detection
+# Shelf Void Detection
 
-**AI-powered warehouse inventory monitoring system using YOLOv11 for real-time stock detection and analysis.**
+**AI-powered shelf & warehouse inventory monitoring — a full-stack computer-vision product that detects occupied vs. vacant shelf slots in real time.**
 
-A complete computer vision pipeline that detects, counts, and analyzes warehouse inventory items using state-of-the-art object detection — enabling automated stock management and logistics optimization.
+Upload a shelf photo and get back color-coded bounding boxes (green = product, red = void), live occupancy analytics, and per-slot confidence scores — powered by a custom-trained YOLOv11 model served through a FastAPI backend and a Next.js dashboard.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue) ![YOLOv11](https://img.shields.io/badge/YOLOv11-Ultralytics-00BFFF) ![License](https://img.shields.io/badge/License-MIT-green) ![Colab](https://img.shields.io/badge/Runs%20on-Colab%20T4-orange)
+![Status](https://img.shields.io/badge/status-active-success) ![Python](https://img.shields.io/badge/Python-3.12+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688) ![Next.js](https://img.shields.io/badge/Next.js-13.5-black) ![YOLOv11](https://img.shields.io/badge/YOLOv11-Ultralytics-00BFFF) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [How Void Detection Works (2-Stage)](#how-void-detection-works-2-stage)
-- [Notebooks](#notebooks)
-- [Getting Started](#getting-started)
+- [Key Features](#key-features)
+- [System Architecture](#system-architecture)
+- [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
-- [Usage](#usage)
-- [Model Performance](#model-performance)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Model & Training](#model--training)
+- [How Void Detection Works](#how-void-detection-works)
+- [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
 
 ---
 
-## 🔍 Overview
+## Overview
 
-This project implements an intelligent warehouse inventory management system that uses computer vision to:
+Manual shelf auditing is slow, error-prone, and expensive. **Shelf Void Detection** automates it: a single photo of a shelf is analyzed in milliseconds to report **how full the shelf is, which slots are empty, and where the gaps are**.
 
-- **Detect** warehouse items and products in real-time
-- **Count** inventory automatically from images/video feeds
-- **Analyze** stock levels and identify gaps
-- **Generate** detailed reports for inventory management
+The system is built as three decoupled layers:
 
-Built with **YOLOv11** (Ultralytics) and optimized for **Google Colab** with T4 GPU acceleration.
+| Layer | Role | Tech |
+|------|------|------|
+| **Model** | Detects `product` and `missing` (void) classes | YOLOv11 (Ultralytics), trained on a custom retail-shelf dataset |
+| **Backend API** | Loads the model, runs inference, returns boxes + stats | FastAPI + PyTorch + Ultralytics, managed with `uv` |
+| **Frontend Dashboard** | Upload image, render boxes overlay, show analytics | Next.js 13 + React 18 + TypeScript + Tailwind + shadcn/ui + Recharts |
 
----
-
-## ✨ Features
-
-- 🎯 **Real-time Detection** — Detect multiple object classes simultaneously
-- 📊 **Inventory Counting** — Automatic item counting with accuracy metrics
-- 🔄 **Training Pipeline** — Complete training workflow with data augmentation
-- 📱 **Colab Ready** — One-click execution on Google Colab with free T4 GPU
-- 📈 **Performance Metrics** — Detailed mAP, precision, and recall analysis
-- 🖼️ **Visualization** — Color-coded bounding boxes (red=void, green=product) with confidence scores
-- 📦 **Export Options** — Multiple format support (ONNX, TensorRT, etc.)
-- 📊 **Shelf Fill Metric** — Calculate average shelf fill percentage
-- 🎯 **2-Stage Void Detection** — YOLOv11 + inverse "complement" detector (opt-in, conservative defaults, measured F1 lower than YOLO alone on our test set)
-- 🛡️ **Error Handling** — Fixed PNG crash + clear error if no images detected
+This separation makes each layer independently deployable, testable, and scalable.
 
 ---
 
-## 🏗️ Architecture
+## Key Features
+
+- **Real-time detection** — single-image inference in ~10–200 ms (CPU/GPU).
+- **Occupancy analytics** — live `% occupied` vs `% vacant`, slot counts, processing time.
+- **Color-coded overlay** — green boxes for products, red boxes for voids, with confidence labels.
+- **Tunable at runtime** — confidence threshold and IoU/NMS overlap adjustable from the UI.
+- **Class-agnostic NMS** — prevents duplicate overlapping product/void boxes on ambiguous regions.
+- **Robust model loading** — auto-detects void class by keyword (`missing`, `void`, `empty`, `vacant`, `gap`) so any retrained model works without code changes.
+- **Health & model info endpoints** — operational endpoints for monitoring and debugging.
+- **CORS-secured backend** — locked to the frontend origin by default.
+- **Production-ready frontend** — Netlify-deployable, responsive, dark-mode-aware UI.
+- **Reproducible training** — Colab notebooks for training and inference, dataset versioned as `dataset.zip`.
+
+---
+
+## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    INPUT LAYER                              │
-│  Camera Feed / Images / Video / RTSP Stream                 │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────────┐
-│                 PREPROCESSING                               │
-│  Resize • Normalize • Augment                               │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────────┐
-│              YOLOv11 DETECTION ENGINE                       │
-│  Backbone → Neck → Head → NMS                               │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────────┐
-│               POST-PROCESSING                               │
-│  Bounding Boxes • Confidence • Classification               │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────────┐
-│              ANALYTICS & REPORTING                          │
-│  Count • Stock Level • Gap Detection • Export               │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        USER BROWSER                              │
+│  Next.js Dashboard (upload, sliders, analytics, box overlay)     │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │  POST /api/detect  (multipart image)
+                               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                     FastAPI BACKEND                              │
+│  /api/health   /api/model/info   /api/detect                     │
+│  ─ image decode (PIL) → numpy                                    │
+│  ─ YOLOv11 predict (conf, iou, agnostic_nms)                     │
+│  ─ classify boxes as occupied/vacant                             │
+│  ─ compute occupancy stats                                       │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │
+                               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                  YOLOv11 MODEL (best.pt)                         │
+│  Trained on custom shelf dataset — 2 classes:                    │
+│     • product  (occupied slot)                                   │
+│     • missing  (vacant / void slot)                              │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Data flow for one request:**
+
+1. User drops a shelf image in the dashboard.
+2. Frontend posts it to `POST /api/detect` with `confidence` and `overlap` form fields.
+3. Backend decodes the image, runs YOLOv11 inference, applies class-agnostic NMS.
+4. Each box is classified `occupied` / `vacant` using the model's void-class keywords.
+5. Backend returns bounding boxes (in `%` of image, render-resolution independent) + aggregate stats.
+6. Frontend renders the image with an absolutely-positioned box overlay and updates the analytics charts.
+
+---
+
+## Tech Stack
+
+**Backend**
+- [FastAPI](https://fastapi.tiangolo.com/) — async REST API
+- [Ultralytics YOLOv11](https://github.com/ultralytics/ultralytics) — object detection
+- [PyTorch](https://pytorch.org/) — model runtime (CPU or CUDA)
+- [Pillow](https://python-pillow.org/) / [NumPy](https://numpy.org/) — image handling
+- [uv](https://github.com/astral-sh/uv) — fast Python package manager
+
+**Frontend**
+- [Next.js 13](https://nextjs.org/) + [React 18](https://react.dev/) — app framework
+- [TypeScript](https://www.typescriptlang.org/) — type safety
+- [Tailwind CSS](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) (Radix) — UI
+- [Recharts](https://recharts.org/) — analytics charts
+- [Netlify](https://www.netlify.com/) — deployment
+
+**Training**
+- [Google Colab](https://colab.research.google.com/) — free T4 GPU training
+- YOLOv11 training pipeline with augmentation
+
+---
+
+## Project Structure
+
+```
+shelf-void-detection/
+├── backend/                          # FastAPI inference API
+│   ├── main.py                       # API: /api/health, /api/model/info, /api/detect
+│   ├── best.pt                       # Trained YOLOv11 weights (2 classes)
+│   ├── yolo11n.pt                    # Generic COCO pretrained (fallback)
+│   ├── colab_train_yolov11.ipynb     # Training notebook
+│   ├── colab_inference_pipeline.ipynb# Inference + 2-stage experiment notebook
+│   ├── pyproject.toml                # Python deps (uv)
+│   └── uv.lock                       # Locked dependency versions
+│
+├── frontend/                         # Next.js dashboard
+│   ├── app/                          # Next.js App Router (layout, page)
+│   ├── components/
+│   │   ├── dashboard/                # top-nav, source-panel, detection-output, occupancy-breakdown
+│   │   └── ui/                       # shadcn/ui primitives
+│   ├── lib/api.ts                    # Typed API client for the backend
+│   ├── next.config.js
+│   ├── netlify.toml                  # Netlify deployment config
+│   └── package.json
+│
+├── dataset.zip                       # Custom labeled shelf dataset
+└── README.md
 ```
 
 ---
 
-## 📓 Notebooks
-
-| Notebook | Description | Link |
-|----------|-------------|------|
-| `colab_train_yolov11.ipynb` | Train YOLOv11 on custom warehouse dataset | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Moh-Tayyab/Smart_Warehouse_Inventory_Analyzer/blob/main/colab_train_yolov11.ipynb) |
-| `colab_inference_pipeline.ipynb` | Run inference and generate predictions | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1I9EYoOdVC1GYhZVl2-TnvAC466oiQOQN?usp=sharing) |
-
----
-
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
-- Python 3.10+
-- Google Colab account (recommended) OR local GPU
-- 8GB+ RAM
-- CUDA-compatible GPU (recommended)
+- **Python 3.12+** and [`uv`](https://github.com/astral-sh/uv) installed
+- **Node.js 18+** and npm
+- (Optional) CUDA GPU for faster inference — CPU works out of the box
 
-### Option 1: Google Colab (Recommended)
-
-1. Click the Colab badges above
-2. Connect to a T4 GPU runtime
-3. Run all cells
-
-### Option 2: Local Setup
+### 1. Backend
 
 ```bash
-# Clone the repository
-git clone https://github.com/Moh-Tayyab/Smart_Warehouse_Inventory_Analyzer.git
-cd Smart_Warehouse_Inventory_Analyzer
+cd backend
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (uv resolves torch CPU/CPU automatically)
+uv sync
 
-# Run training
-python train.py --data dataset.yaml --epochs 100 --img 640
-
-# Run inference
-python predict.py --source images/ --weights best.pt
+# Start the API (defaults to http://localhost:8000)
+uv run uvicorn main:app --reload
 ```
 
----
-
-## 🎯 How Void Detection Works (2-Stage)
-
-A common challenge in shelf-monitoring systems: **"void" = absence of products = no positive visual pattern.**
-Even a strong YOLOv11 model struggles here (we measured **45% recall** on voids vs **86% on products**).
-
-This project ships **two modes**:
-
-### Mode 1 — YOLO alone (default, proven baseline)
-The trained model directly predicts the `missing` class. On our 31-image test set:
-- **Recall 45%, Precision 63%, F1 52.7%** — the best result we measured.
-- This is what runs by default. `USE_INVERSE_VOIDS = False` in the notebook.
-
-### Mode 2 — 2-stage "products-first, voids-as-complement" (experimental, opt-in)
-When `USE_INVERSE_VOIDS = True`, the pipeline adds a second stage on top of YOLO:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Stage 1 — YOLOv11 (unchanged)                              │
-│  ──────────────────────────────                             │
-│  • Strong product detection (recall 0.86)                   │
-│  • Detects both "product" and "missing" classes             │
-│  • The strong product signal is the foundation              │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────────┐
-│  Stage 2 — Inverse Void Detector (opt-in)                   │
-│  ─────────────────────────────────────                      │
-│  1. Group YOLO product boxes into horizontal rows (y-center)│
-│  2. For each row: build strip mask (full image width ×      │
-│     product y-extent), subtract products as full-height     │
-│     barriers                                               │
-│  3. cv2.connectedComponentsWithStats → void candidate boxes │
-│  4. CV filter (3-signal: saturation + edge density +       │
-│     color variance) — reject likely-missed products        │
-│  5. Quality gate: if >3 candidates from one row, halve     │
-│     their confidence (suspicious row)                      │
-│  6. Output: (xyxy, conf, method="inverse")                  │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────────┐
-│  Merge + Containment-NMS                                    │
-│  ────────────────────────                                   │
-│  Stage 1 + Stage 2 boxes go through the same containment-    │
-│  aware NMS as before — duplicate / nested / overlapping     │
-│  boxes are merged. Final output is color-coded.             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Measured on 31 test images (IoU>0.3 matching):**
-
-| Variant | Recall | Precision | F1 |
-|---|---|---|---|
-| YOLO alone (default) | **45%** | **63%** | **52.7%** |
-| 2-stage (`USE_INVERSE_VOIDS = True`) | 36-44% | 14-22% | 23-28% |
-
-**Honest conclusion:** On this test set the inverse stage is **not yet better than YOLO alone** — it
-catches some new voids but generates many more false-positive candidates, hurting precision. We ship
-it anyway as an opt-in, fully-tunable pipeline you can run **Step 4.6** (validation harness) on
-to measure its F1 on your own data. On a different dataset (with simpler shelves, plain products,
-consistent backgrounds) it may do better.
-
-**Tunable parameters** (in `colab_inference_pipeline.ipynb` Step 4.5):
-- `USE_INVERSE_VOIDS = False` — master switch
-- `SAT_MAX_FOR_VOID = 65` — max HSV saturation; lower = stricter (fewer FP, lower recall)
-- `MIN_VOID_AREA = 400` — minimum void area in pixels²
-- `MIN_VOID_WIDTH_FRAC = 0.40` — min void width as fraction of median product width
-- `MAX_VOIDS_PER_ROW = 3` — quality gate threshold
-- `MERGE_GAP_FRAC = 0.50` — merge adjacent voids if gap < this × median product width
-
-**Honest caveat:** The CV filter is heuristic. For unusual images (very textured empty shelves like wood grain, pegboard) it will under-detect. For unusually plain products (plain cardboard) it may over-detect. The defaults are tuned for typical retail — validate on a 20-image holdout and tune 2-3 thresholds for production. Research-backed approach (Šikić 2024, Jha 2022, Sementille 2026 — "products-first, voids-as-complement").
-
----
-
-## 📁 Project Structure
-
-```
-Smart_Warehouse_Inventory_Analyzer/
-├── 📓 colab_train_yolov11.ipynb     # Training notebook
-├── 📓 colab_inference_pipeline.ipynb # Inference notebook (visualization + validation)
-├── 📁 scripts/                       # Standalone utility scripts
-│   └── threshold_sweep.py           # Find best CONFIDENCE via F1 sweep
-├── 📁 shelf_dataset_v6/              # Train/valid/test split (28 test images with labels)
-├── 📁 images/                        # Sample images
-├── 📄 requirements.txt               # Python dependencies
-├── 📄 LICENSE                        # MIT License
-├── 📄 README.md                      # This file
-└── 📄 .gitignore                     # Git ignore rules
-```
-
-### 🧪 Data-backed threshold tuning (sweep)
-
-The default `CONFIDENCE = 0.30` in the inference notebook is chosen via a sweep on the 28 labeled test images. To re-run the sweep locally or on Colab:
+Verify it's up:
 
 ```bash
-# Local (CPU, ~1-2 min)
-MODEL_PATH=/path/to/best.pt python3 scripts/threshold_sweep.py
-
-# Colab (GPU, ~30 sec)
-!MODEL_PATH=/content/best.pt python3 scripts/threshold_sweep.py
+curl http://localhost:8000/api/health
+# {"status":"ok","device":"cpu"}
 ```
 
-Sweep table (last measured on 28 test images, IoU>0.3):
+### 2. Frontend
 
-| conf | recall | precision | F1 |
-|---|---|---|---|
-| 0.20 | 59.2% | 58.0% | 58.6% |
-| **0.30** | **53.4%** | **69.4%** | **60.3% ← best** |
-| 0.40 | 45.8% | 75.2% | 56.9% |
-| 0.50 | 40.3% | 83.5% | 54.4% |
-| 0.60 | 27.3% | 86.7% | 41.5% |
-
-> ⚠️ 0.50+ avoid karo — recall collapses, F1 drops. Voids = absence of product (no direct visual pattern), strict threshold hurts.
-
----
-
-## 💡 Usage
-
-### Training
-
-```python
-from ultralytics import YOLO
-
-# Load model
-model = YOLO('yolo11n.pt')  # Load pretrained
-
-# Train on custom dataset
-results = model.train(
-    data='dataset.yaml',
-    epochs=100,
-    imgsz=640,
-    batch=16,
-    name='warehouse_detector'
-)
-```
-
-### Inference
-
-```python
-from ultralytics import YOLO
-
-# Load trained model
-model = YOLO('best.pt')
-
-# Run inference
-results = model.predict(
-    source='images/',
-    conf=0.25,
-    save=True
-)
-
-# Process results
-for result in results:
-    boxes = result.boxes
-    print(f"Detected {len(boxes)} items")
-```
-
-### Command Line
+In a new terminal:
 
 ```bash
-# Training
-yolo train model=yolo11n.pt data=dataset.yaml epochs=100 imgsz=640
+cd frontend
 
-# Prediction
-yolo predict model=best.pt source=images/ conf=0.25
+npm install
+npm run dev
+```
 
-# Export
-yolo export model=best.pt format=onnx
+Open [http://localhost:3000](http://localhost:3000), upload a shelf image, and you should see detection boxes + occupancy analytics.
+
+> The frontend expects the backend at `http://localhost:8000` by default. Override with `NEXT_PUBLIC_API_URL` (see [Configuration](#configuration)).
+
+---
+
+## Configuration
+
+### Backend (environment variables)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODEL_PATH` | `backend/best.pt` if present, else `yolo11n.pt` | Path to trained YOLOv11 weights. Set this to override. |
+
+### Backend (runtime params — `POST /api/detect`)
+
+| Param | Default | Description |
+|-------|---------|-------------|
+| `confidence` | `0.35` | Minimum detection confidence. Lower = more detections (higher recall), more false positives. |
+| `overlap` | `0.45` | IoU threshold for NMS. Lower = more aggressive deduplication of overlapping boxes. |
+
+### Frontend (environment variables)
+
+Create `frontend/.env.local`:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 ---
 
-## 📊 Model Performance
+## API Reference
 
-Trained on `shelf_dataset_v5` (273 train / 72 valid / 31 test images, 2 classes: `missing` + `product`).
+Base URL: `http://localhost:8000`
 
-### Per-class metrics (best.pt, validation split)
+### `GET /api/health`
+Service liveness + device check.
 
-| Class | Precision | Recall | mAP@50 |
-|-------|-----------|--------|--------|
-| `missing` (void) | 0.634 | 0.449 | 0.470 |
-| `product` | 0.850 | 0.860 | 0.880 |
-| **Overall** | 0.742 | 0.655 | 0.675 |
+```json
+{ "status": "ok", "device": "cpu" }
+```
 
-### With 2-stage inverse void detector (inference-side, opt-in)
+### `GET /api/model/info`
+Loaded model metadata + class names.
 
-| Metric | YOLOv11 only (default) | + Inverse Stage 2 (opt-in) |
-|---|---|---|
-| Void recall | 0.45 | 0.36-0.44 (catches some YOLO-missed voids) |
-| Void precision | **0.63** | 0.14-0.22 (many more candidates, CV filter) |
-| F1 | **0.527** | 0.23-0.28 |
-| Product detection | unchanged | unchanged |
-| Inference time | ~12ms | +200-400ms (CV pass on candidates) |
+```json
+{
+  "model_path": "backend/best.pt",
+  "classes": { "0": "missing", "1": "product" },
+  "device": "cpu"
+}
+```
 
-**On this test set YOLO alone wins on F1.** The 2-stage is shipped as an opt-in, fully-tunable
-alternative — on a different dataset (simpler shelves, plain products, consistent backgrounds) it
-may improve. Always validate on your own holdout using `Step 4.6` (the validation cell in the
-inference notebook). The 2-stage trades some precision for higher recall — preferable for
-restock planning only if you tune `SAT_MAX_FOR_VOID` and `MIN_VOID_AREA` carefully.
+### `POST /api/detect`
+Run detection on an uploaded image.
+
+**Form data:** `file` (image), `confidence` (float, optional), `overlap` (float, optional)
+
+**Response:**
+```json
+{
+  "detections": [
+    {
+      "id": 1,
+      "x": 12.34, "y": 45.6, "w": 8.7, "h": 15.2,
+      "type": "occupied",
+      "confidence": 0.91,
+      "class": "product"
+    }
+  ],
+  "stats": {
+    "detectionCount": 87,
+    "processingTime": 142,
+    "occupiedPct": 78.4,
+    "vacantPct": 21.6,
+    "slotsDetected": 87,
+    "occupiedBoxes": 68,
+    "vacantBoxes": 19
+  },
+  "image": { "width": 615, "height": 444 }
+}
+```
+
+> Bounding box coordinates are **percentages of image dimensions** (`x`, `y`, `w`, `h` ∈ 0–100), so the overlay renders correctly at any display size.
+
+Interactive API docs are auto-generated at `http://localhost:8000/docs` (Swagger UI).
 
 ---
 
-## 🤝 Contributing
+## Model & Training
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+The shipped `backend/best.pt` is a **YOLOv11** model trained on a custom retail-shelf dataset with two classes:
 
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
+| Class ID | Class Name | Meaning |
+|----------|-----------|---------|
+| `0` | `missing` | Empty / vacant shelf slot (void) |
+| `1` | `product` | Occupied shelf slot |
+
+### Retrain on your own data
+
+Open `backend/colab_train_yolov11.ipynb` in [Google Colab](https://colab.research.google.com/) (free T4 GPU), point it at your dataset, and run end-to-end. Drop the resulting `best.pt` into `backend/` (or set `MODEL_PATH`) and the API picks it up automatically.
+
+The companion `backend/colab_inference_pipeline.ipynb` runs batch inference, visualization, and an optional experimental **2-stage void detector** (see below).
+
+---
+
+## How Void Detection Works
+
+Detecting "voids" is hard because **an empty slot is the absence of a visual pattern** — there's nothing positive for the model to latch onto. This project handles it in two complementary ways:
+
+### Default: Direct YOLOv11 classification (production)
+The trained model predicts the `missing` class directly. This is what the backend runs. Class-agnostic NMS (`agnostic_nms=True`) is enabled to merge overlapping product/void boxes on ambiguous regions — a pragmatic fix for annotation noise in the current dataset.
+
+### Experimental: 2-stage "products-first, voids-as-complement"
+Available in `colab_inference_pipeline.ipynb` (opt-in via `USE_INVERSE_VOIDS = True`):
+
+1. YOLOv11 detects products with high recall.
+2. Products are grouped into horizontal shelf rows by y-center.
+3. For each row, a strip mask is built and products are subtracted as full-height barriers.
+4. `cv2.connectedComponentsWithStats` extracts void candidate boxes.
+5. A heuristic CV filter (saturation + edge density + color variance) rejects likely-missed products.
+6. A quality gate penalizes suspicious rows that emit too many candidates.
+7. Stage 1 + Stage 2 boxes go through containment-aware NMS.
+
+This is a research-backed approach (products-first, voids-as-complement) and is shipped as a fully-tunable pipeline for experimentation on different datasets. On the current test set, direct YOLO classification has the stronger F1 — the 2-stage variant trades precision for recall and is preferable only for restock-planning workflows after tuning.
+
+**Tunable knobs** (in the inference notebook): `USE_INVERSE_VOIDS`, `SAT_MAX_FOR_VOID`, `MIN_VOID_AREA`, `MIN_VOID_WIDTH_FRAC`, `MAX_VOIDS_PER_ROW`, `MERGE_GAP_FRAC`.
+
+---
+
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch — `git checkout -b feature/your-feature`
+3. Commit with clear messages — `git commit -m 'feat: add video inference endpoint'`
+4. Push — `git push origin feature/your-feature`
 5. Open a Pull Request
 
+Please run the frontend checks locally before submitting:
+
+```bash
+cd frontend && npm run lint && npm run typecheck
+```
+
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [Ultralytics YOLOv11](https://github.com/ultralytics/ultralytics) — Object detection framework
-- [Google Colab](https://colab.research.google.com/) — Free GPU computing
-- [Roboflow](https://roboflow.com/) — Dataset management
+Released under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
 
-**⭐ Star this repo if you find it useful!**
-
-Made with ❤️ by [Moh-Tayyab](https://github.com/Moh-Tayyab)
+**Built by [Muhammad Tayyab](https://github.com/Moh-Tayyab)**
 
 </div>

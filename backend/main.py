@@ -21,17 +21,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# MODEL_PATH (env) takes precedence; otherwise fall back to the trained best.pt
+# that ships next to main.py, and only then to the generic yolo11n.pt COCO model.
+# If MODEL_PATH is unset we previously loaded yolo11n.pt, which knows nothing
+# about shelf-void/product classes and so returned zero detections.
+_BACKEND_DIR = Path(__file__).resolve().parent
 MODEL_PATH = os.environ.get("MODEL_PATH", "")
+_FALLBACK = _BACKEND_DIR / "best.pt"
+# Keywords that mark a class as an empty/unoccupied shelf slot. Matched as
+# substrings against model.names so the API classifies the void class correctly
+# regardless of whether the trained model calls it "missing", "shelf-void",
+# "empty", etc. The old code used exact tuple membership on the class NAME
+# ("missing"/"void"/...), which silently counted every void as occupied the
+# moment a model whose void class was named "shelf-void" was loaded.
+_VOID_KEYWORDS = ("void", "missing", "empty", "vacant", "gap")
+
 model = None
+_void_class_ids: set[int] = set()
 
 
 def get_model():
-    global model
+    global model, _void_class_ids
     if model is None:
         if MODEL_PATH and Path(MODEL_PATH).exists():
-            model = YOLO(MODEL_PATH)
+            path = MODEL_PATH
+        elif _FALLBACK.exists():
+            path = str(_FALLBACK)
         else:
-            model = YOLO("yolo11n.pt")
+            path = "yolo11n.pt"
+        model = YOLO(path)
+        names = getattr(model, "names", {}) or {}
+        _void_class_ids = {
+            cid
+            for cid, name in names.items()
+            if any(kw in str(name).lower() for kw in _VOID_KEYWORDS)
+        }
     return model
 
 
@@ -65,10 +89,16 @@ async def detect(
     img = np.array(pil)
 
     start = time.time()
+    # agnostic_nms=True: NMS merges overlapping boxes across CLASSES, not just within a class.
+    # Without it, a region the model is unsure about emits BOTH a product and a void box that
+    # survive per-class NMS and show up as overlapping green/red boxes. This picks the
+    # higher-confidence class. Band-aid for the v6 annotation conflicts; revisit once labels
+    # are cleaned and the model is retrained. See backend/clean_annotations.py.
     results = m.predict(
         source=img,
         conf=confidence,
         iou=overlap,
+        agnostic_nms=True,
         verbose=False,
     )
     elapsed_ms = round((time.time() - start) * 1000)
@@ -87,7 +117,7 @@ async def detect(
             conf = round(float(box.conf[0]), 4)
             x1, y1, x2, y2 = box.xyxy[0].tolist()
 
-            is_occupied = cls_name.lower() not in ("missing", "void", "empty", "vacant")
+            is_occupied = cls_id not in _void_class_ids
             label = "occupied" if is_occupied else "vacant"
 
             if is_occupied:
