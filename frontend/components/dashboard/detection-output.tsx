@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Download, Upload } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Download, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { BoundingBox } from '@/lib/api';
 
@@ -13,6 +13,7 @@ interface DetectionOutputProps {
   imageUrl: string | null;
   boxes: BoundingBox[];
   onImageSelect: (file: File) => void;
+  onClearImage: () => void;
 }
 
 export function DetectionOutput({
@@ -23,6 +24,7 @@ export function DetectionOutput({
   imageUrl,
   boxes,
   onImageSelect,
+  onClearImage,
 }: DetectionOutputProps) {
   const [hoveredBox, setHoveredBox] = useState<number | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -349,6 +351,16 @@ export function DetectionOutput({
                 </div>
               );
             })()}
+
+            {/* Cancel button */}
+            <button
+              type="button"
+              onClick={onClearImage}
+              aria-label="Remove image"
+              className="absolute top-3 right-3 z-10 w-7 h-7 rounded-md flex items-center justify-center transition-colors duration-150 hover:bg-white/10 bg-black/40 text-white/80 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
 
             {/* Corner marks */}
             <div className="absolute top-3 left-3 w-4 h-4 border-t border-l border-white/20" />

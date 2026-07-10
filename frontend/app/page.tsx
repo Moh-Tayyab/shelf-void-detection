@@ -38,6 +38,22 @@ export default function Home() {
     };
   }, [imageUrl]);
 
+  const handleClearImage = useCallback(() => {
+    if (imageUrl?.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
+    setImageFile(null);
+    setImageUrl(null);
+    setImageMeta({ label: 'No image selected', dimensions: '—', size: '—' });
+    setBoxes([]);
+    setDetectionCount(0);
+    setProcessingTime(null);
+    setOccupiedPct(0);
+    setVacantPct(0);
+    setSlotsDetected(0);
+    setOccupiedBoxes(0);
+    setVacantBoxes(0);
+    setError(null);
+  }, [imageUrl]);
+
   const handleImageSelect = useCallback((file: File) => {
     setError(null);
     if (imageUrl?.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
@@ -113,6 +129,7 @@ export default function Home() {
             imageUrl={imageUrl}
             imageMeta={imageMeta}
             onImageSelect={handleImageSelect}
+            onClearImage={handleClearImage}
             sessions={sessions}
           />
 
@@ -134,6 +151,7 @@ export default function Home() {
               imageUrl={imageUrl}
               boxes={boxes}
               onImageSelect={handleImageSelect}
+              onClearImage={handleClearImage}
             />
           </div>
         </div>

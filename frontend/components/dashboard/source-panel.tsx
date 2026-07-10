@@ -1,9 +1,15 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Play, Upload, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { Play, Upload, Image as ImageIcon, RefreshCw, X, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { Slider } from '@/components/ui/slider';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { type SessionEntry, formatRelativeTime } from '@/hooks/use-session-history';
 import { formatBytes } from '@/lib/utils';
 
@@ -12,6 +18,8 @@ export interface ImageMeta {
   dimensions: string;
   size: string;
 }
+
+const IDEAL_CONFIDENCE = 0.35;
 
 interface SourcePanelProps {
   onProcess: () => void;
@@ -25,6 +33,7 @@ interface SourcePanelProps {
   imageUrl: string | null;
   imageMeta: ImageMeta;
   onImageSelect: (file: File) => void;
+  onClearImage: () => void;
   sessions?: SessionEntry[];
 }
 
@@ -40,6 +49,7 @@ export function SourcePanel({
   imageUrl,
   imageMeta,
   onImageSelect,
+  onClearImage,
   sessions = [],
 }: SourcePanelProps) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -107,13 +117,25 @@ export function SourcePanel({
               <span className="text-[11px] font-medium text-[var(--text-primary)] truncate">
                 {imageMeta.label}
               </span>
-              <button
-                type="button"
-                onClick={openPicker}
-                className="text-label shrink-0 transition-colors hover:opacity-80 text-[var(--blue-accent)] text-[10px] !tracking-normal !normal-case font-medium"
-              >
-                change
-              </button>
+              <div className="flex items-center gap-1">
+                {imageUrl && (
+                  <button
+                    type="button"
+                    onClick={onClearImage}
+                    aria-label="Remove image"
+                    className="w-4 h-4 rounded flex items-center justify-center transition-colors duration-150 hover:bg-white/10 text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={openPicker}
+                  className="text-label shrink-0 transition-colors hover:opacity-80 text-[var(--blue-accent)] text-[10px] !tracking-normal !normal-case font-medium"
+                >
+                  change
+                </button>
+              </div>
             </div>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-label text-[9.5px]">{imageMeta.dimensions}</span>
@@ -135,65 +157,107 @@ export function SourcePanel({
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col gap-5 p-4 border-b border-[var(--border-subtle)]">
-        {/* Confidence */}
-        <div className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <label id="conf-label" htmlFor="conf-slider" className="text-label">Confidence</label>
-            <span className="font-mono-num tabular-nums text-[11px] font-medium text-[var(--text-primary)]" aria-hidden="true">
-              {confidence.toFixed(2)}
-            </span>
-          </div>
-          <Slider
-            id="conf-slider"
-            aria-labelledby="conf-label"
-            min={0} max={1} step={0.01}
-            value={[confidence]}
-            onValueChange={([v]) => onConfidenceChange(v)}
-            className="w-full"
-          />
-        </div>
-
-        {/* Overlap IoU */}
-        <div className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <label id="overlap-label" htmlFor="overlap-slider" className="text-label">Overlap (IoU)</label>
-            <span className="font-mono-num tabular-nums text-[11px] font-medium text-[var(--text-primary)]" aria-hidden="true">
-              {overlap.toFixed(2)}
-            </span>
-          </div>
-          <Slider
-            id="overlap-slider"
-            aria-labelledby="overlap-label"
-            min={0} max={1} step={0.01}
-            value={[overlap]}
-            onValueChange={([v]) => onOverlapChange(v)}
-            className="w-full"
-          />
-        </div>
-
-        {/* Metric toggle */}
-        <div className="flex flex-col gap-2" role="group" aria-label="Metric selection">
-          <span className="text-label">Metric</span>
-          <div className="flex rounded-md p-0.5 w-full bg-white/[0.04] border border-[var(--border-default)]">
-            {(['area', 'count'] as const).map(m => (
-              <button
-                key={m}
-                type="button"
-                aria-pressed={metric === m}
-                onClick={() => onMetricChange(m)}
-                className={`flex-1 rounded py-1 text-[11px] font-medium transition-all duration-150 ${
-                  metric === m
-                    ? 'bg-blue-500/20 text-[var(--blue-accent)] border border-blue-500/30'
-                    : 'bg-transparent text-[var(--text-secondary)] border border-transparent'
-                }`}
+      <TooltipProvider delayDuration={400}>
+        <div className="flex flex-col gap-5 p-4 border-b border-[var(--border-subtle)]">
+          {/* Confidence */}
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <label id="conf-label" htmlFor="conf-slider" className="text-label">Confidence</label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="w-3 h-3 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-help" aria-label="About Confidence">
+                      <Info className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[220px] text-[11px] leading-relaxed">
+                    Minimum certainty for a detection to be shown. Lower values increase recall but also false positives.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <span className="font-mono-num tabular-nums text-[11px] font-medium text-[var(--text-primary)]" aria-hidden="true">
+                {confidence.toFixed(2)}
+              </span>
+            </div>
+            <div className="relative">
+              <Slider
+                id="conf-slider"
+                aria-labelledby="conf-label"
+                min={0} max={1} step={0.01}
+                value={[confidence]}
+                onValueChange={([v]) => onConfidenceChange(v)}
+                className="w-full"
+              />
+              {/* Ideal breakpoint marker */}
+              <div
+                className="absolute top-1/2 -translate-y-1/2 pointer-events-none z-10"
+                style={{ left: `${IDEAL_CONFIDENCE * 100}%` }}
               >
-                {m.charAt(0).toUpperCase() + m.slice(1)}
-              </button>
-            ))}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="block w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-400/60 shadow-sm shadow-amber-400/30 cursor-help" aria-label={`Ideal confidence: ${IDEAL_CONFIDENCE.toFixed(2)}`} />
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-[11px]">
+                    Ideal breakpoint: <span className="font-mono">{IDEAL_CONFIDENCE.toFixed(2)}</span>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+          </div>
+
+          {/* Overlap IoU */}
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <label id="overlap-label" htmlFor="overlap-slider" className="text-label">Overlap (IoU)</label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="w-3 h-3 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-help" aria-label="About Overlap IoU">
+                      <Info className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[220px] text-[11px] leading-relaxed">
+                    Intersection over Union — the NMS threshold for merging overlapping boxes. Higher values keep more boxes (may show duplicates), lower values deduplicate more aggressively.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <span className="font-mono-num tabular-nums text-[11px] font-medium text-[var(--text-primary)]" aria-hidden="true">
+                {overlap.toFixed(2)}
+              </span>
+            </div>
+            <Slider
+              id="overlap-slider"
+              aria-labelledby="overlap-label"
+              min={0} max={1} step={0.01}
+              value={[overlap]}
+              onValueChange={([v]) => onOverlapChange(v)}
+              className="w-full"
+            />
+          </div>
+
+          {/* Metric toggle */}
+          <div className="flex flex-col gap-2" role="group" aria-label="Metric selection">
+            <span className="text-label">Metric</span>
+            <div className="flex rounded-md p-0.5 w-full bg-white/[0.04] border border-[var(--border-default)]">
+              {(['area', 'count'] as const).map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={metric === m}
+                  onClick={() => onMetricChange(m)}
+                  className={`flex-1 rounded py-1 text-[11px] font-medium transition-all duration-150 ${
+                    metric === m
+                      ? 'bg-blue-500/20 text-[var(--blue-accent)] border border-blue-500/30'
+                      : 'bg-transparent text-[var(--text-secondary)] border border-transparent'
+                  }`}
+                >
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </TooltipProvider>
 
       {/* Process button */}
       <div className="p-4">
