@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 
 RUN pip install --no-cache-dir fastapi python-multipart "ultralytics>=8.4.89" "uvicorn[standard]"
 
-COPY main.py best.pt yolo11n.pt /app/
+COPY main.py models.py yolo11n.pt /app/
+COPY models/ /app/models/
 
 EXPOSE 8000
 

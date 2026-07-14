@@ -44,6 +44,8 @@
     /* Semantic domain tokens */
     --color-occupied: #22c55e;
     --color-vacant: #ef4444;
+    --color-partial: #f59e0b;
+    --color-arrangement: #a855f7;
     --color-success: #10b981;
     --color-danger: #ef4444;
     --color-primary: #3b82f6;
@@ -97,6 +99,8 @@
     /* Semantic domain tokens */
     --color-occupied: #059669;
     --color-vacant: #dc2626;
+    --color-partial: #d97706;
+    --color-arrangement: #7c3aed;
     --color-success: #059669;
     --color-danger: #dc2626;
     --color-primary: #2563eb;

@@ -1,15 +1,17 @@
+import asyncio
 import io
-import os
 import time
 from pathlib import Path
 
 import numpy as np
 import torch
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
-from ultralytics import YOLO
+from starlette.concurrency import run_in_threadpool
+
+from models import get_registry, ModelState
 
 app = FastAPI(title="Shelf Void Detection API")
 
@@ -21,42 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# MODEL_PATH (env) takes precedence; otherwise fall back to the trained best.pt
-# that ships next to main.py, and only then to the generic yolo11n.pt COCO model.
-# If MODEL_PATH is unset we previously loaded yolo11n.pt, which knows nothing
-# about shelf-void/product classes and so returned zero detections.
-_BACKEND_DIR = Path(__file__).resolve().parent
-MODEL_PATH = os.environ.get("MODEL_PATH", "")
-_FALLBACK = _BACKEND_DIR / "best.pt"
-# Keywords that mark a class as an empty/unoccupied shelf slot. Matched as
-# substrings against model.names so the API classifies the void class correctly
-# regardless of whether the trained model calls it "missing", "shelf-void",
-# "empty", etc. The old code used exact tuple membership on the class NAME
-# ("missing"/"void"/...), which silently counted every void as occupied the
-# moment a model whose void class was named "shelf-void" was loaded.
-_VOID_KEYWORDS = ("void", "missing", "empty", "vacant", "gap")
-
-model = None
-_void_class_ids: set[int] = set()
-
-
-def get_model():
-    global model, _void_class_ids
-    if model is None:
-        if MODEL_PATH and Path(MODEL_PATH).exists():
-            path = MODEL_PATH
-        elif _FALLBACK.exists():
-            path = str(_FALLBACK)
-        else:
-            path = "yolo11n.pt"
-        model = YOLO(path)
-        names = getattr(model, "names", {}) or {}
-        _void_class_ids = {
-            cid
-            for cid, name in names.items()
-            if any(kw in str(name).lower() for kw in _VOID_KEYWORDS)
-        }
-    return model
+VALID_MODELS = {"occupancy", "partial", "arrangement"}
 
 
 @app.get("/api/health")
@@ -66,46 +33,27 @@ def health():
 
 @app.get("/api/model/info")
 def model_info():
-    m = get_model()
-    names = m.names if hasattr(m, "names") else {}
+    registry = get_registry()
+    models = {}
+    for key, ms in registry.items():
+        models[key] = {
+            "available": ms.available,
+            "classes": ms.names,
+            "weight": str(ms.weight_path) if ms.available else None,
+        }
     return {
-        "model_path": MODEL_PATH or "yolo11n (default pretrained)",
-        "classes": names,
+        "models": models,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
     }
 
 
-@app.post("/api/detect")
-async def detect(
-    file: UploadFile = File(...),
-    confidence: float = Form(0.35),
-    overlap: float = Form(0.45),
-):
-    image_bytes = await file.read()
+# ── Interpreters ─────────────────────────────────────────────────────────
 
-    m = get_model()
-
-    pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = np.array(pil)
-
-    start = time.time()
-    # agnostic_nms=True: NMS merges overlapping boxes across CLASSES, not just within a class.
-    # Without it, a region the model is unsure about emits BOTH a product and a void box that
-    # survive per-class NMS and show up as overlapping green/red boxes. This picks the
-    # higher-confidence class. Band-aid for the v6 annotation conflicts; revisit once labels
-    # are cleaned and the model is retrained. See backend/clean_annotations.py.
-    results = m.predict(
-        source=img,
-        conf=confidence,
-        iou=overlap,
-        agnostic_nms=True,
-        verbose=False,
-    )
-    elapsed_ms = round((time.time() - start) * 1000)
-
+def _interpret_occupancy(results, ms: ModelState):
+    void_ids = ms.meta.get("void_class_ids", set())
     detections = []
-    occupied_count = 0
-    vacant_count = 0
+    occupied = 0
+    vacant = 0
 
     for r in results:
         if r.boxes is None:
@@ -117,13 +65,13 @@ async def detect(
             conf = round(float(box.conf[0]), 4)
             x1, y1, x2, y2 = box.xyxy[0].tolist()
 
-            is_occupied = cls_id not in _void_class_ids
+            is_occupied = cls_id not in void_ids
             label = "occupied" if is_occupied else "vacant"
 
             if is_occupied:
-                occupied_count += 1
+                occupied += 1
             else:
-                vacant_count += 1
+                vacant += 1
 
             detections.append({
                 "id": len(detections) + 1,
@@ -136,23 +84,186 @@ async def detect(
                 "class": cls_name,
             })
 
-    total = occupied_count + vacant_count
-    occupied_pct = round(occupied_count / total * 100, 1) if total else 0
-    vacant_pct = round(vacant_count / total * 100, 1) if total else 0
+    total = occupied + vacant
+    occupied_pct = round(occupied / total * 100, 1) if total else 0
+    vacant_pct = round(vacant / total * 100, 1) if total else 0
 
-    return JSONResponse({
+    return detections, {
+        "detectionCount": len(detections),
+        "processingTime": 0,
+        "occupiedPct": occupied_pct,
+        "vacantPct": vacant_pct,
+        "slotsDetected": total,
+        "occupiedBoxes": occupied,
+        "vacantBoxes": vacant,
+    }
+
+
+def _interpret_partial(results, ms: ModelState):
+    detections = []
+    for r in results:
+        if r.boxes is None:
+            continue
+        img_h, img_w = r.orig_shape
+        for box in r.boxes:
+            conf = round(float(box.conf[0]), 4)
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            cls_name = r.names.get(int(box.cls[0]), str(int(box.cls[0])))
+
+            detections.append({
+                "id": len(detections) + 1,
+                "x": round(x1 / img_w * 100, 2),
+                "y": round(y1 / img_h * 100, 2),
+                "w": round((x2 - x1) / img_w * 100, 2),
+                "h": round((y2 - y1) / img_h * 100, 2),
+                "type": "partial",
+                "confidence": conf,
+                "class": cls_name,
+            })
+
+    return detections, {
+        "detectionCount": len(detections),
+        "processingTime": 0,
+    }
+
+
+def _interpret_arrangement(results, ms: ModelState):
+    detections = []
+    for r in results:
+        if r.boxes is None:
+            continue
+        img_h, img_w = r.orig_shape
+        for box in r.boxes:
+            conf = round(float(box.conf[0]), 4)
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            cls_name = r.names.get(int(box.cls[0]), str(int(box.cls[0])))
+
+            detections.append({
+                "id": len(detections) + 1,
+                "x": round(x1 / img_w * 100, 2),
+                "y": round(y1 / img_h * 100, 2),
+                "w": round((x2 - x1) / img_w * 100, 2),
+                "h": round((y2 - y1) / img_h * 100, 2),
+                "type": "misarranged",
+                "confidence": conf,
+                "class": cls_name,
+            })
+
+    return detections, {
+        "detectionCount": len(detections),
+        "processingTime": 0,
+    }
+
+
+_INTERPRETERS = {
+    "occupancy": _interpret_occupancy,
+    "partial": _interpret_partial,
+    "arrangement": _interpret_arrangement,
+}
+
+
+def _run_inference_np(ms: ModelState, img: np.ndarray, confidence: float, overlap: float) -> dict:
+    start = time.time()
+    results = ms.yolo.predict(
+        source=img,
+        conf=confidence,
+        iou=overlap,
+        agnostic_nms=True,
+        verbose=False,
+    )
+    elapsed_ms = round((time.time() - start) * 1000)
+
+    interpreter = _INTERPRETERS[ms.key]
+    detections, stats = interpreter(results, ms)
+    stats["processingTime"] = elapsed_ms
+
+    return {
+        "model": ms.key,
+        "available": True,
         "detections": detections,
-        "stats": {
-            "detectionCount": len(detections),
-            "processingTime": elapsed_ms,
-            "occupiedPct": occupied_pct,
-            "vacantPct": vacant_pct,
-            "slotsDetected": total,
-            "occupiedBoxes": occupied_count,
-            "vacantBoxes": vacant_count,
-        },
+        "stats": stats,
         "image": {
             "width": results[0].orig_shape[1] if results else 0,
             "height": results[0].orig_shape[0] if results else 0,
         },
-    })
+    }
+
+
+def _run_inference(ms: ModelState, image_bytes: bytes, confidence: float, overlap: float) -> dict:
+    pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = np.array(pil)
+    return _run_inference_np(ms, img, confidence, overlap)
+
+
+@app.post("/api/detect")
+async def detect(
+    file: UploadFile = File(...),
+    confidence: float = Form(0.35),
+    overlap: float = Form(0.45),
+    model: str = Query("occupancy"),
+):
+    if model not in VALID_MODELS:
+        return JSONResponse(
+            {"error": f"Invalid model '{model}'. Choose from: {', '.join(sorted(VALID_MODELS))}"},
+            status_code=400,
+        )
+
+    registry = get_registry()
+    ms = registry[model]
+
+    if not ms.available:
+        return {
+            "model": model,
+            "available": False,
+            "detections": [],
+            "stats": {"detectionCount": 0, "processingTime": 0},
+            "image": {"width": 0, "height": 0},
+        }
+
+    image_bytes = await file.read()
+    return await run_in_threadpool(_run_inference, ms, image_bytes, confidence, overlap)
+
+
+@app.post("/api/detect/all")
+async def detect_all(
+    file: UploadFile = File(...),
+    confidence: float = Form(0.35),
+    overlap: float = Form(0.45),
+):
+    image_bytes = await file.read()
+
+    pil = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = np.array(pil)
+
+    registry = get_registry()
+
+    async def run(key: str) -> dict:
+        ms = registry[key]
+        if not ms.available:
+            return {
+                "model": key,
+                "available": False,
+                "detections": [],
+                "stats": {"detectionCount": 0, "processingTime": 0},
+                "image": {"width": 0, "height": 0},
+            }
+        return await run_in_threadpool(_run_inference_np, ms, img, confidence, overlap)
+
+    tasks = [run(key) for key in VALID_MODELS]
+    gathered = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output: dict[str, dict] = {}
+    for key, result in zip(VALID_MODELS, gathered):
+        if isinstance(result, Exception):
+            output[key] = {
+                "model": key,
+                "available": False,
+                "error": str(result),
+                "detections": [],
+                "stats": {"detectionCount": 0, "processingTime": 0},
+                "image": {"width": 0, "height": 0},
+            }
+        else:
+            output[key] = result
+
+    return output

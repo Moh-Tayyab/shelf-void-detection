@@ -1,22 +1,36 @@
 'use client';
 
-import { Bell, Settings, Activity, AlertCircle, Sun, Moon } from 'lucide-react';
+import { Bell, Settings, Activity, Sun, Moon } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { useModelInfo } from '@/hooks/use-model-info';
+import { useModelInfo, type PerModelStatus } from '@/hooks/use-model-info';
+import type { ModelKey } from '@/lib/api';
 
 interface TopNavProps {
   processingTime?: number | null;
 }
 
-export function TopNav({ processingTime = null }: TopNavProps) {
-  const { ready, loading, device, modelLabel } = useModelInfo();
-  const { theme, setTheme } = useTheme();
+const MODEL_LABEL: Record<ModelKey, string> = {
+  occupancy: 'Occ',
+  partial: 'Prt',
+  arrangement: 'Arr',
+};
 
-  const badge = loading
-    ? { color: 'text-[var(--text-tertiary)]', bg: 'bg-white/[0.04]', border: 'border-white/[0.08]', label: 'Connecting…' }
-    : ready
-    ? { color: 'text-[var(--color-success)]', bg: 'bg-[var(--color-success)]/[0.08]', border: 'border-[var(--color-success)]/20', label: 'Model ready' }
-    : { color: 'text-[var(--color-danger)]', bg: 'bg-[var(--color-danger)]/[0.08]', border: 'border-[var(--color-danger)]/20', label: 'Model offline' };
+function ModelDot({ model, status }: { model: ModelKey; status: PerModelStatus }) {
+  const color = status.available
+    ? 'bg-[var(--color-success)]'
+    : 'bg-[var(--text-tertiary)]';
+  return (
+    <span
+      className={`w-1.5 h-1.5 rounded-full ${color}`}
+      title={`${model}: ${status.available ? 'ready' : 'unavailable'}`}
+      aria-label={`${model} model ${status.available ? 'ready' : 'unavailable'}`}
+    />
+  );
+}
+
+export function TopNav({ processingTime = null }: TopNavProps) {
+  const { ready, loading, device, perModel } = useModelInfo();
+  const { theme, setTheme } = useTheme();
 
   return (
     <header
@@ -51,26 +65,24 @@ export function TopNav({ processingTime = null }: TopNavProps) {
 
         <div className="hidden md:block w-px h-4 bg-[var(--color-panel-divider)]" />
 
-        {/* Model badge */}
+        {/* Multi-model badge */}
         <div
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md ${badge.bg} border ${badge.border}`}
+          className={`flex items-center gap-2 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]`}
           role="status"
-          aria-label={`Model ${loading ? 'loading' : ready ? 'ready' : 'offline'}${device ? ` on ${device}` : ''}${modelLabel ? `, ${modelLabel}` : ''}`}
+          aria-label={`Models: ${loading ? 'loading' : ready ? perModel.occupancy.available ? 'occupancy ready' : 'occupancy offline' : 'offline'}`}
         >
-          {ready ? (
-            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${badge.color}`} />
+          {loading ? (
+            <span className="text-[10px] text-[var(--text-tertiary)]">Connecting…</span>
           ) : (
-            <AlertCircle className={`w-3 h-3 ${badge.color}`} aria-hidden="true" />
-          )}
-          <span className={`text-xs font-medium ${badge.color}`}>
-            {badge.label}
-          </span>
-          {ready && (
             <>
-              <div className="w-px h-3 mx-0.5 bg-[var(--color-glow-green)]" />
-              <span className="text-xs font-mono text-[var(--color-success)]/75">
-                {modelLabel}
-                {device ? ` · ${device}` : ''}
+              <span className="flex items-center gap-1">
+                {(Object.keys(perModel) as ModelKey[]).map(key => (
+                  <ModelDot key={key} model={key} status={perModel[key]} />
+                ))}
+              </span>
+              <div className="w-px h-3 mx-0.5 bg-[var(--color-panel-divider)]" />
+              <span className="text-[10px] font-mono text-[var(--text-tertiary)]">
+                {device ?? ''}
               </span>
             </>
           )}

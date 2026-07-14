@@ -3,26 +3,56 @@
 import { useState, useRef, useCallback } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Download, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { BoundingBox } from '@/lib/api';
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/ui/toggle-group';
+import type { BoundingBox, BoxType, ModelKey, ModelStatus } from '@/lib/api';
+import { MODEL_KEYS } from '@/lib/api';
+
+const COLOR_BY_TYPE: Record<BoxType, { stroke: string; fill: string; glowId: string; label: string }> = {
+  occupied:    { stroke: 'var(--color-occupied)',    fill: 'rgba(34,197,94,0.85)',    glowId: 'glow-occupied',    label: 'occ' },
+  vacant:      { stroke: 'var(--color-vacant)',      fill: 'rgba(239,68,68,0.85)',    glowId: 'glow-vacant',      label: 'vac' },
+  partial:     { stroke: 'var(--color-partial)',     fill: 'rgba(245,158,11,0.85)',   glowId: 'glow-partial',     label: 'prtl' },
+  misarranged: { stroke: 'var(--color-arrangement)', fill: 'rgba(168,85,247,0.85)',   glowId: 'glow-arrangement', label: 'mis' },
+};
+
+const STATUS_LABEL: Record<ModelStatus, { symbol: string; className: string }> = {
+  idle:         { symbol: '○', className: 'text-[var(--text-tertiary)]' },
+  loading:      { symbol: '◌', className: 'text-[var(--blue-accent)] animate-pulse' },
+  done:         { symbol: '●', className: 'text-[var(--color-success)]' },
+  error:        { symbol: '✕', className: 'text-[var(--color-danger)]' },
+  unavailable:  { symbol: '—', className: 'text-[var(--text-tertiary)]' },
+};
+
+const MODEL_LABEL: Record<ModelKey, string> = {
+  occupancy:    'Occupancy',
+  partial:      'Partial',
+  arrangement:  'Arrangement',
+};
 
 interface DetectionOutputProps {
   isProcessing: boolean;
-  showBoxes: boolean;
   detectionCount: number;
   processingTime: number | null;
   imageUrl: string | null;
   boxes: BoundingBox[];
+  view: ModelKey;
+  statusByModel: Record<ModelKey, ModelStatus>;
+  onViewChange: (v: ModelKey) => void;
   onImageSelect: (file: File) => void;
   onClearImage: () => void;
 }
 
 export function DetectionOutput({
   isProcessing,
-  showBoxes,
   detectionCount,
   processingTime,
   imageUrl,
   boxes,
+  view,
+  statusByModel,
+  onViewChange,
   onImageSelect,
   onClearImage,
 }: DetectionOutputProps) {
@@ -50,7 +80,7 @@ export function DetectionOutput({
   };
 
   const visibleBoxes = boxes.filter(
-    b => filterType === 'all' || b.type === filterType
+    b => view !== 'occupancy' || filterType === 'all' || b.type === filterType
   );
 
   /* ── Canvas export ─────────────────────────────────────────────────── */
@@ -82,15 +112,15 @@ export function DetectionOutput({
         const y = (box.y / 100) * natH;
         const w = (box.w / 100) * natW;
         const h = (box.h / 100) * natH;
-        const isOccupied = box.type === 'occupied';
-        const strokeColor = isOccupied ? 'var(--color-occupied)' : 'var(--color-vacant)';
-        const fillColor = isOccupied ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)';
+        const color = COLOR_BY_TYPE[box.type];
+        const strokeColor = color.stroke;
+        const fillColor = color.fill;
 
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = LINE_W;
         ctx.strokeRect(x, y, w, h);
 
-        const label = `${isOccupied ? 'occ' : 'vac'} ${box.confidence.toFixed(2)}`;
+        const label = `${color.label} ${box.confidence.toFixed(2)}`;
         ctx.font = FONT;
         const textW = ctx.measureText(label).width + 8;
         const textH = natH * 0.028;
@@ -121,8 +151,8 @@ export function DetectionOutput({
     img.src = imageUrl;
   }, [imageUrl, visibleBoxes]);
 
-  const isOccupiedColor = 'var(--color-occupied)';
-  const isVacantColor = 'var(--color-vacant)';
+  const isViewLoading = statusByModel[view] === 'loading';
+  const isViewDone = statusByModel[view] === 'done';
 
   return (
     <div className="flex flex-col flex-1 bg-[var(--surface-1)] border border-[var(--border-default)] rounded-xl overflow-hidden">
@@ -130,26 +160,48 @@ export function DetectionOutput({
       <div className="flex items-center justify-between px-4 py-3 shrink-0 border-b border-[var(--border-subtle)]">
         <h2 className="text-label text-[var(--text-tertiary)]">DETECTION OUTPUT</h2>
         <div className="flex items-center gap-4">
-          {/* Filter chips */}
-          <div className="flex items-center gap-1" role="group" aria-label="Filter detections by type">
-            {(['all', 'occupied', 'vacant'] as const).map(f => (
-              <button
-                key={f}
-                type="button"
-                aria-pressed={filterType === f}
-                onClick={() => setFilterType(f)}
-                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all duration-150 ${
-                  filterType === f
-                    ? 'bg-white/[0.08] text-[var(--text-primary)]'
-                    : 'bg-transparent text-[var(--text-tertiary)]'
-                }`}
+          {/* View toggle */}
+          <ToggleGroup
+            type="single"
+            value={view}
+            onValueChange={(v) => { if (v) onViewChange(v as ModelKey); }}
+            aria-label="Select detection view"
+          >
+            {MODEL_KEYS.map(key => (
+              <ToggleGroupItem
+                key={key}
+                value={key}
+                aria-label={`Show ${MODEL_LABEL[key]} detections`}
+                className="px-2 py-0.5 rounded text-[10px] font-medium data-[state=on]:bg-white/[0.08] data-[state=on]:text-[var(--text-primary)] data-[state=off]:bg-transparent data-[state=off]:text-[var(--text-tertiary)] h-auto"
               >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
+                {MODEL_LABEL[key]}
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
 
-          <div className="w-px h-3.5 bg-[var(--color-panel-divider)]" />
+          {/* Sub-filter chips — only for occupancy */}
+          {view === 'occupancy' && (
+            <>
+              <div className="flex items-center gap-1" role="group" aria-label="Filter detections by type">
+                {(['all', 'occupied', 'vacant'] as const).map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    aria-pressed={filterType === f}
+                    onClick={() => setFilterType(f)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all duration-150 ${
+                      filterType === f
+                        ? 'bg-white/[0.08] text-[var(--text-primary)]'
+                        : 'bg-transparent text-[var(--text-tertiary)]'
+                    }`}
+                  >
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <div className="w-px h-3.5 bg-[var(--color-panel-divider)]" />
+            </>
+          )}
 
           <div className="flex items-center gap-1">
             <span className="font-mono-num text-xs font-semibold text-[var(--text-primary)]">
@@ -196,6 +248,23 @@ export function DetectionOutput({
         </div>
       </div>
 
+      {/* Status row */}
+      <div
+        className="flex items-center gap-3 px-4 py-1.5 border-b border-[var(--border-subtle)] bg-white/[0.015]"
+        aria-live="polite"
+      >
+        {MODEL_KEYS.map(key => {
+          const st = statusByModel[key];
+          const s = STATUS_LABEL[st];
+          return (
+            <span key={key} className="flex items-center gap-1 text-[10px]">
+              <span className={s.className}>{s.symbol}</span>
+              <span className="text-[var(--text-tertiary)]">{MODEL_LABEL[key]}</span>
+            </span>
+          );
+        })}
+      </div>
+
       {/* Image viewport */}
       <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-[#060a12]" style={{ minHeight: 0 }}>
         {!imageUrl ? (
@@ -240,11 +309,13 @@ export function DetectionOutput({
           </button>
         ) : (
           <>
-            {isProcessing && (
+            {isViewLoading && (
               <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#060a12]/70 backdrop-blur-[2px]">
                 <div className="flex flex-col items-center gap-3">
                   <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
-                  <span className="text-xs font-medium text-[var(--text-secondary)]">Running inference...</span>
+                  <span className="text-xs font-medium text-[var(--text-secondary)]">
+                    Running {MODEL_LABEL[view]} inference...
+                  </span>
                 </div>
               </div>
             )}
@@ -262,13 +333,13 @@ export function DetectionOutput({
                 alt="Shelf detection"
                 className="block w-full max-w-[900px] h-auto"
                 style={{
-                  filter: isProcessing ? 'brightness(0.5)' : 'brightness(1)',
+                  filter: isViewLoading ? 'brightness(0.5)' : 'brightness(1)',
                   transition: 'filter 0.3s ease',
                 }}
                 draggable={false}
               />
 
-              {showBoxes && !isProcessing && visibleBoxes.length > 0 && (
+              {isViewDone && visibleBoxes.length > 0 && (
                 <svg
                   className="absolute inset-0 w-full h-full"
                   viewBox="0 0 100 100"
@@ -276,28 +347,35 @@ export function DetectionOutput({
                   style={{ pointerEvents: 'none' }}
                 >
                   <defs>
-                    <filter id="glow-green" x="-20%" y="-20%" width="140%" height="140%">
+                    <filter id="glow-occupied" x="-20%" y="-20%" width="140%" height="140%">
                       <feGaussianBlur stdDeviation="0.3" result="blur" />
                       <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                     </filter>
-                    <filter id="glow-red" x="-20%" y="-20%" width="140%" height="140%">
+                    <filter id="glow-vacant" x="-20%" y="-20%" width="140%" height="140%">
+                      <feGaussianBlur stdDeviation="0.3" result="blur" />
+                      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                    <filter id="glow-partial" x="-20%" y="-20%" width="140%" height="140%">
+                      <feGaussianBlur stdDeviation="0.3" result="blur" />
+                      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                    <filter id="glow-arrangement" x="-20%" y="-20%" width="140%" height="140%">
                       <feGaussianBlur stdDeviation="0.3" result="blur" />
                       <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                     </filter>
                   </defs>
                   {visibleBoxes.map(box => {
-                    const isOccupied = box.type === 'occupied';
-                    const color = isOccupied ? isOccupiedColor : isVacantColor;
+                    const color = COLOR_BY_TYPE[box.type];
                     const isHovered = hoveredBox === box.id;
-                    const ariaLabel = `${isOccupied ? 'Occupied' : 'Vacant'} slot, confidence ${box.confidence.toFixed(2)}${box.label ? `, class ${box.label}` : ''}`;
+                    const ariaLabel = `${box.type} slot, confidence ${box.confidence.toFixed(2)}${box.label ? `, class ${box.label}` : ''}`;
                     return (
                       <g key={box.id}>
                         <rect
                           x={box.x} y={box.y} width={box.w} height={box.h}
-                          fill={isHovered ? (isOccupied ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)') : 'none'}
-                          stroke={color}
+                          fill={isHovered ? (color.fill.replace('0.85', '0.12')) : 'none'}
+                          stroke={color.stroke}
                           strokeWidth={isHovered ? '0.4' : '0.25'}
-                          filter={isHovered ? (isOccupied ? 'url(#glow-green)' : 'url(#glow-red)') : undefined}
+                          filter={isHovered ? `url(${color.glowId})` : undefined}
                           tabIndex={0}
                           role="button"
                           aria-label={ariaLabel}
@@ -316,7 +394,7 @@ export function DetectionOutput({
                         <rect
                           x={box.x} y={box.y - 2.5}
                           width={box.confidence < 0.9 ? 6 : 6.5} height={2.2}
-                          fill={isOccupied ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)'}
+                          fill={color.fill}
                           rx="0.3"
                         />
                         <text
@@ -324,7 +402,7 @@ export function DetectionOutput({
                           fill="white" fontSize="1.5" fontWeight="600" fontFamily="monospace"
                           style={{ pointerEvents: 'none' }}
                         >
-                          {isOccupied ? 'occ' : 'vac'} {box.confidence.toFixed(2)}
+                          {color.label} {box.confidence.toFixed(2)}
                         </text>
                       </g>
                     );
@@ -336,12 +414,13 @@ export function DetectionOutput({
             {hoveredBox !== null && (() => {
               const box = boxes.find(b => b.id === hoveredBox);
               if (!box) return null;
+              const color = COLOR_BY_TYPE[box.type];
               return (
                 <div className="absolute bottom-3 left-3 px-2.5 py-1.5 rounded-md bg-[var(--surface-0)]/95 border border-white/10 backdrop-blur-[8px] z-10">
                   <div className="flex items-center gap-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${box.type === 'occupied' ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]'}`} />
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color.stroke }} />
                     <span className="text-xs font-medium text-[var(--text-primary)]">
-                      {box.type === 'occupied' ? 'Occupied' : 'Vacant'}
+                      {box.type.charAt(0).toUpperCase() + box.type.slice(1)}
                       {box.label && ` — ${box.label}`}
                     </span>
                     <span className="text-label text-[var(--text-tertiary)]">

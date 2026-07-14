@@ -74,7 +74,7 @@ logs/
 ehthumbs.db
 
 # claude and opencode
-.claude
 .claude/
 .opencode
-.opencode/
+.opencode/data/
+.agents/

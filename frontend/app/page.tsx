@@ -6,7 +6,13 @@ import { TopNav } from '@/components/dashboard/top-nav';
 import { SourcePanel, type ImageMeta } from '@/components/dashboard/source-panel';
 import { DetectionOutput } from '@/components/dashboard/detection-output';
 import { OccupancyBreakdown } from '@/components/dashboard/occupancy-breakdown';
-import { detectImage, type BoundingBox } from '@/lib/api';
+import {
+  detectImageAll,
+  MODEL_KEYS,
+  type ModelKey,
+  type ModelResult,
+  type ModelStatus,
+} from '@/lib/api';
 import { useSessionHistory } from '@/hooks/use-session-history';
 import { formatBytes } from '@/lib/utils';
 
@@ -14,23 +20,25 @@ export default function Home() {
   const [confidence, setConfidence] = useState(0.35);
   const [overlap, setOverlap] = useState(0.45);
   const [metric, setMetric] = useState<'area' | 'count'>('area');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [showBoxes, setShowBoxes] = useState(true);
-  const [detectionCount, setDetectionCount] = useState(0);
-  const [processingTime, setProcessingTime] = useState<number | null>(null);
-  const [occupiedPct, setOccupiedPct] = useState(0);
-  const [vacantPct, setVacantPct] = useState(0);
-  const [slotsDetected, setSlotsDetected] = useState(0);
-  const [occupiedBoxes, setOccupiedBoxes] = useState(0);
-  const [vacantBoxes, setVacantBoxes] = useState(0);
-
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageMeta, setImageMeta] = useState<ImageMeta>({ label: 'No image selected', dimensions: '—', size: '—' });
-  const [boxes, setBoxes] = useState<BoundingBox[]>([]);
   const [error, setError] = useState<string | null>(null);
-
   const { sessions, addSession } = useSessionHistory();
+
+  const [results, setResults] = useState<Record<ModelKey, ModelResult | null>>({
+    occupancy: null, partial: null, arrangement: null,
+  });
+  const [statusByModel, setStatusByModel] = useState<Record<ModelKey, ModelStatus>>({
+    occupancy: 'idle', partial: 'idle', arrangement: 'idle',
+  });
+  const [view, setView] = useState<ModelKey>('occupancy');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const currentResult = results[view];
+  const boxes = currentResult?.detections ?? [];
+  const detectionCount = currentResult?.stats?.detectionCount ?? 0;
+  const processingTime = currentResult?.stats?.processingTime ?? null;
 
   useEffect(() => {
     return () => {
@@ -43,14 +51,8 @@ export default function Home() {
     setImageFile(null);
     setImageUrl(null);
     setImageMeta({ label: 'No image selected', dimensions: '—', size: '—' });
-    setBoxes([]);
-    setDetectionCount(0);
-    setProcessingTime(null);
-    setOccupiedPct(0);
-    setVacantPct(0);
-    setSlotsDetected(0);
-    setOccupiedBoxes(0);
-    setVacantBoxes(0);
+    setResults({ occupancy: null, partial: null, arrangement: null });
+    setStatusByModel({ occupancy: 'idle', partial: 'idle', arrangement: 'idle' });
     setError(null);
   }, [imageUrl]);
 
@@ -65,7 +67,7 @@ export default function Home() {
       dimensions: '—',
       size: formatBytes(file.size),
     });
-    setBoxes([]);
+    setResults({ occupancy: null, partial: null, arrangement: null });
   }, [imageUrl]);
 
   const handleProcess = useCallback(async () => {
@@ -76,37 +78,60 @@ export default function Home() {
     }
 
     setIsProcessing(true);
-    setShowBoxes(false);
     setError(null);
+    setResults({ occupancy: null, partial: null, arrangement: null });
+    setStatusByModel({ occupancy: 'loading', partial: 'loading', arrangement: 'loading' });
+
+    const opts = { confidence, overlap };
 
     try {
-      const result = await detectImage(imageFile, { confidence, overlap });
+      const batchResult = await detectImageAll(imageFile, opts);
 
-      setBoxes(result.detections);
-      setDetectionCount(result.stats.detectionCount);
-      setProcessingTime(result.stats.processingTime);
-      setOccupiedPct(result.stats.occupiedPct);
-      setVacantPct(result.stats.vacantPct);
-      setSlotsDetected(result.stats.slotsDetected);
-      setOccupiedBoxes(result.stats.occupiedBoxes);
-      setVacantBoxes(result.stats.vacantBoxes);
-      if (result.image.width && result.image.height) {
-        setImageMeta(m => ({
-          ...m,
-          dimensions: `${result.image.width} × ${result.image.height}`,
-        }));
+      const newResults: Record<ModelKey, ModelResult | null> = {
+        occupancy: null, partial: null, arrangement: null,
+      };
+      const newStatus: Record<ModelKey, ModelStatus> = {
+        occupancy: 'idle', partial: 'idle', arrangement: 'idle',
+      };
+      let totalDetections = 0;
+
+      for (const key of MODEL_KEYS) {
+        const result = batchResult[key];
+        if (result?.available) {
+          newResults[key] = result;
+          newStatus[key] = 'done';
+          totalDetections += result.stats.detectionCount;
+        } else if (result) {
+          newResults[key] = result;
+          newStatus[key] = 'unavailable';
+        } else {
+          newStatus[key] = 'error';
+        }
       }
 
-      toast.success(`Detected ${result.stats.detectionCount} slots in ${result.stats.processingTime} ms`);
-      addSession({ label: imageFile.name, detections: result.stats.detectionCount });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Detection request failed.';
-      setError(message);
-      setBoxes([]);
-      toast.error(message);
+      setResults(newResults);
+      setStatusByModel(newStatus);
+
+      if (totalDetections > 0 && imageFile) {
+        addSession({ label: imageFile.name, detections: totalDetections });
+      }
+
+      if (totalDetections > 0) {
+        toast.success(`Analysis complete — ${totalDetections} total detections`);
+      }
+
+      const occ = batchResult.occupancy;
+      if (occ?.image.width && occ.image.height) {
+        setImageMeta(m => ({
+          ...m,
+          dimensions: `${occ.image.width} × ${occ.image.height}`,
+        }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Detection failed');
+      setStatusByModel({ occupancy: 'error', partial: 'error', arrangement: 'error' });
     } finally {
       setIsProcessing(false);
-      setShowBoxes(true);
     }
   }, [isProcessing, imageFile, confidence, overlap, addSession]);
 
@@ -145,25 +170,29 @@ export default function Home() {
             )}
             <DetectionOutput
               isProcessing={isProcessing}
-              showBoxes={showBoxes}
               detectionCount={detectionCount}
               processingTime={processingTime}
               imageUrl={imageUrl}
               boxes={boxes}
+              view={view}
+              statusByModel={statusByModel}
+              onViewChange={setView}
               onImageSelect={handleImageSelect}
               onClearImage={handleClearImage}
             />
           </div>
         </div>
 
-        <OccupancyBreakdown
-          metric={metric}
-          occupiedPct={occupiedPct}
-          vacantPct={vacantPct}
-          slotsDetected={slotsDetected}
-          occupiedBoxes={occupiedBoxes}
-          vacantBoxes={vacantBoxes}
-        />
+        {view === 'occupancy' && (
+          <OccupancyBreakdown
+            metric={metric}
+            occupiedPct={results.occupancy?.stats?.occupiedPct ?? 0}
+            vacantPct={results.occupancy?.stats?.vacantPct ?? 0}
+            slotsDetected={results.occupancy?.stats?.slotsDetected ?? 0}
+            occupiedBoxes={results.occupancy?.stats?.occupiedBoxes ?? 0}
+            vacantBoxes={results.occupancy?.stats?.vacantBoxes ?? 0}
+          />
+        )}
       </main>
     </div>
   );
